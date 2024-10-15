@@ -234,6 +234,8 @@ int main(int argc, char **argv) {
 
   igl::octree(P, PI, CH, CN, W);
 
+  // now, remove the corner points used to pad out the input so that the octree would fill the space
+
   std::cout << "Built octree" << std::endl;
 
   std::vector<std::vector<int >> PI_l;
@@ -248,22 +250,20 @@ int main(int argc, char **argv) {
   Eigen::VectorXi parents_l;
   
   std::tie(PI_l, CN_l, W_l, leaf_to_all, all_to_leaf, depths, depths_l, parents, parents_l) = getLeaves(P, PI, CH, CN, W);
+  
+  std::vector<Eigen::Vector3d> oc_pts;
+  std::vector<Eigen::Vector2i> oc_edges;
+  std::tie(oc_pts, oc_edges) = visOctree(CN_l, W_l);
 
   std::cout << "Extracted leaves" << std::endl;
 
-  std::vector<struct CellNeighbors> neighs = createOctreeNeighbors(CN_l, W_l);
+  std::vector<struct CellNeighbors> neighs = createOctreeNeighbors(CN_l, W_l, oc_pts, oc_edges);
 
   std::cout << "Built leaf connectivity" << std::endl;
 
   std::cout << "Octree statistics:" << std::endl
             << "\tNumber of cells: " << CN.rows() << std::endl
             << "\tNumber of leaf cells: " << CN_l.rows() << std::endl;
-
-  // build octree visualization
-  std::vector<Eigen::Vector3d> oc_pts;
-  std::vector<Eigen::Vector2i> oc_edges;
-  std::tie(oc_pts, oc_edges) = visOctree(CN_l, W_l);
-  auto pc_oc = polyscope::registerCurveNetwork("Octree edges", oc_pts, oc_edges);
 
 
   auto pc = polyscope::registerPointCloud("Points", P);
@@ -272,45 +272,33 @@ int main(int argc, char **argv) {
   pc_cn->addScalarQuantity("Depth", depths_l);
   pc_cn->addScalarQuantity("Parents", parents_l);
 
+  auto pc_oc = polyscope::registerCurveNetwork("Octree edges", oc_pts, oc_edges);
+
   // test octree neighbors
-  int test_cell = 20;
-  Eigen::VectorXi right_neighs = Eigen::VectorXi::Zero(CN_l.rows());
-  right_neighs[test_cell] = 2;
-  Eigen::VectorXi left_neighs = Eigen::VectorXi::Zero(CN_l.rows());
-  left_neighs[test_cell] = 2;
-  Eigen::VectorXi top_neighs = Eigen::VectorXi::Zero(CN_l.rows());
-  top_neighs[test_cell] = 2;
-  Eigen::VectorXi bottom_neighs = Eigen::VectorXi::Zero(CN_l.rows());
-  bottom_neighs[test_cell] = 2;
-  Eigen::VectorXi front_neighs = Eigen::VectorXi::Zero(CN_l.rows());
-  front_neighs[test_cell] = 2;
-  Eigen::VectorXi back_neighs = Eigen::VectorXi::Zero(CN_l.rows());
-  back_neighs[test_cell] = 2;
+  int test_cell = 1505;
+  Eigen::VectorXi neigh_plot = Eigen::VectorXi::Zero(CN_l.rows());
+  neigh_plot[test_cell] = 2;
+
   for (int n: neighs[test_cell].right) {
-    right_neighs[n] = 1;
+    neigh_plot[n] = 1;
   }
   for (int n: neighs[test_cell].left) {
-    left_neighs[n] = 1;
+    neigh_plot[n] = 1;
   }
   for (int n: neighs[test_cell].top) {
-    top_neighs[n] = 1;
+    neigh_plot[n] = 1;
   }
   for (int n: neighs[test_cell].bottom) {
-    bottom_neighs[n] = 1;
+    neigh_plot[n] = 1;
   }
   for (int n: neighs[test_cell].front) {
-    front_neighs[n] = 1;
+    neigh_plot[n] = 1;
   }
   for (int n: neighs[test_cell].back) {
-    back_neighs[n] = 1;
+    neigh_plot[n] = 1;
   }
 
-  pc_cn->addScalarQuantity("right", right_neighs);
-  pc_cn->addScalarQuantity("left", left_neighs);
-  pc_cn->addScalarQuantity("top", top_neighs);
-  pc_cn->addScalarQuantity("bottom", bottom_neighs);
-  pc_cn->addScalarQuantity("front", front_neighs);
-  pc_cn->addScalarQuantity("back", back_neighs);
+  pc_cn->addScalarQuantity("neighs", neigh_plot);
 
   // Give control to the polyscope gui
   polyscope::show();
