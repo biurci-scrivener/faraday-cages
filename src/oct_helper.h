@@ -1,5 +1,8 @@
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <iostream>
+#include <numeric>
+#include <algorithm>
 
 struct CellNeighbors {
     std::vector<int> right;
@@ -8,9 +11,13 @@ struct CellNeighbors {
     std::vector<int> bottom;
     std::vector<int> front;
     std::vector<int> back;
+    std::vector<int> all;
 };
 
-// Eigen::VectorXi onSide(int leaf, int other, Eigen::MatrixXd &CN_l, Eigen::VectorXd &W_l);
+Eigen::VectorXd solveDirichletProblem(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<struct CellNeighbors> &neighs, Eigen::VectorXi &is_boundary, Eigen::VectorXi &depths, Eigen::VectorXd bdry_vals, int laplacian);
 
-std::vector<struct CellNeighbors> createOctreeNeighbors(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<Eigen::Vector3d> &oc_pts, std::vector<Eigen::Vector2i> &oc_edges);
+Eigen::VectorXi splitBoundaryInteriorCells(std::vector<struct CellNeighbors> neighs);
+
+std::vector<struct CellNeighbors> createLeafNeighbors(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<Eigen::Vector3d> &oc_pts, std::vector<Eigen::Vector2i> &oc_edges);
+
 

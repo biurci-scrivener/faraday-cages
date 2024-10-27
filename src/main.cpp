@@ -12,6 +12,7 @@
 #include "../deps/libigl/include/igl/bounding_box.h"
 
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 
 #include <queue>
 #include <unordered_map>
@@ -235,6 +236,7 @@ int main(int argc, char **argv) {
   igl::octree(P, PI, CH, CN, W);
 
   // now, remove the corner points used to pad out the input so that the octree would fill the space
+  // TODO
 
   std::cout << "Built octree" << std::endl;
 
@@ -250,55 +252,70 @@ int main(int argc, char **argv) {
   Eigen::VectorXi parents_l;
   
   std::tie(PI_l, CN_l, W_l, leaf_to_all, all_to_leaf, depths, depths_l, parents, parents_l) = getLeaves(P, PI, CH, CN, W);
+
+  std::cout << "Extracted leaves" << std::endl;
   
   std::vector<Eigen::Vector3d> oc_pts;
   std::vector<Eigen::Vector2i> oc_edges;
   std::tie(oc_pts, oc_edges) = visOctree(CN_l, W_l);
 
-  std::cout << "Extracted leaves" << std::endl;
+  std::cout << "Built octree vis." << std::endl;
 
-  std::vector<struct CellNeighbors> neighs = createOctreeNeighbors(CN_l, W_l, oc_pts, oc_edges);
+  std::vector<struct CellNeighbors> neighs = createLeafNeighbors(CN_l, W_l, oc_pts, oc_edges);
 
   std::cout << "Built leaf connectivity" << std::endl;
+
+  Eigen::VectorXi is_boundary = splitBoundaryInteriorCells(neighs);
 
   std::cout << "Octree statistics:" << std::endl
             << "\tNumber of cells: " << CN.rows() << std::endl
             << "\tNumber of leaf cells: " << CN_l.rows() << std::endl;
 
+  // solve Dirichlet problem, as a test
+
+  Eigen::VectorXd bdry_vals = Eigen::VectorXd::Zero(CN_l.rows());
+
+  for (int leaf = 0; leaf < CN_l.rows(); leaf++) {
+    bdry_vals[leaf] = CN_l(leaf, 0); // + CN_l(leaf, 1) + CN_l(leaf, 2);
+  }
+
+  Eigen::VectorXd u_uni = solveDirichletProblem(CN_l, W_l, neighs, is_boundary, depths_l, bdry_vals, 0);
+  Eigen::VectorXd u_weight = solveDirichletProblem(CN_l, W_l, neighs, is_boundary, depths_l, bdry_vals, 2);
+  Eigen::VectorXd u_weight_4 = solveDirichletProblem(CN_l, W_l, neighs, is_boundary, depths_l, bdry_vals, 4);
+
+  std::cout << "Solved Dirichlet problem" << std::endl;
+
 
   auto pc = polyscope::registerPointCloud("Points", P);
   pc->addVectorQuantity("True Normals", N);
+  pc->setEnabled(false);
   auto pc_cn = polyscope::registerPointCloud("Octree cell centers (leaves)", CN_l);
   pc_cn->addScalarQuantity("Depth", depths_l);
   pc_cn->addScalarQuantity("Parents", parents_l);
 
   auto pc_oc = polyscope::registerCurveNetwork("Octree edges", oc_pts, oc_edges);
+  pc_oc->setEnabled(false);
 
-  // test octree neighbors
-  int test_cell = 1505;
-  Eigen::VectorXi neigh_plot = Eigen::VectorXi::Zero(CN_l.rows());
-  neigh_plot[test_cell] = 2;
+  pc_cn->addScalarQuantity("Boundary cells", is_boundary);
 
-  for (int n: neighs[test_cell].right) {
-    neigh_plot[n] = 1;
-  }
-  for (int n: neighs[test_cell].left) {
-    neigh_plot[n] = 1;
-  }
-  for (int n: neighs[test_cell].top) {
-    neigh_plot[n] = 1;
-  }
-  for (int n: neighs[test_cell].bottom) {
-    neigh_plot[n] = 1;
-  }
-  for (int n: neighs[test_cell].front) {
-    neigh_plot[n] = 1;
-  }
-  for (int n: neighs[test_cell].back) {
-    neigh_plot[n] = 1;
-  }
+  pc_cn->addScalarQuantity("Laplacian solve (uniform)", u_uni);
+  Eigen::VectorXd laplacian_error_uniform = (u_uni - bdry_vals).cwiseAbs();
+  auto vs_le_u = pc_cn->addScalarQuantity("Laplacian error (uniform)", laplacian_error_uniform);
 
-  pc_cn->addScalarQuantity("neighs", neigh_plot);
+  pc_cn->addScalarQuantity("Laplacian solve (weighted)", u_weight);
+  Eigen::VectorXd laplacian_error_weighted = (u_weight - bdry_vals).cwiseAbs();
+  auto vs_le_w = pc_cn->addScalarQuantity("Laplacian error (weighted)", laplacian_error_weighted);
+
+  pc_cn->addScalarQuantity("Laplacian solve (weighted, 4 neighbors)", u_weight_4);
+  Eigen::VectorXd laplacian_error_weighted_4 = (u_weight_4 - bdry_vals).cwiseAbs();
+  auto vs_le_w_4 = pc_cn->addScalarQuantity("Laplacian error (weighted, 4 neighbors)", laplacian_error_weighted_4);
+  
+  vs_le_u->setColorMap("blues");
+  vs_le_u->setMapRange(std::pair<double,double>(0, fmax(fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted.maxCoeff()), laplacian_error_weighted_4.maxCoeff())));
+  vs_le_w->setColorMap("blues");
+  vs_le_w->setMapRange(std::pair<double,double>(0, fmax(fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted.maxCoeff()), laplacian_error_weighted_4.maxCoeff())));
+  vs_le_w_4->setColorMap("blues");
+  vs_le_w_4->setMapRange(std::pair<double,double>(0, fmax(fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted.maxCoeff()), laplacian_error_weighted_4.maxCoeff())));
 
   // Give control to the polyscope gui
   polyscope::show();
