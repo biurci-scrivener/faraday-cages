@@ -63,22 +63,17 @@ double getNeighDepthDelta(int leaf, std::vector<int> &neighs, Eigen::VectorXi &d
 double getDistanceFromDelta(int leaf, int depth_gap, Eigen::VectorXd &W) {return ((W[leaf] / 2.) + ((W[leaf] * pow(2, depth_gap)) / 2.));}
 
 void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::VectorXi &search, Eigen::MatrixXd &CN, Eigen::VectorXd &W, Eigen::VectorXi &is_cage_point, 
-                        std::vector<Eigen::Vector3d> &oc_pts, std::vector<Eigen::Vector2i> &oc_edges, Eigen::MatrixXd &bb,
-                        Eigen::VectorXi &is_boundary_cell, Eigen::VectorXi &is_cage_cell, std::vector<struct CellNeighbors> &neighs) {
+                        Eigen::MatrixXd &bb, Eigen::VectorXi &is_boundary_cell, Eigen::VectorXi &is_cage_cell, std::vector<struct CellNeighbors> &neighs) {
 
-    std::vector<Eigen::Vector3d> corners_mine = { oc_pts[leaf * 8], oc_pts[leaf * 8 + 1],
-                                                oc_pts[leaf * 8 + 2], oc_pts[leaf * 8 + 3],
-                                                oc_pts[leaf * 8 + 4], oc_pts[leaf * 8 + 5],
-                                                oc_pts[leaf * 8 + 6], oc_pts[leaf * 8 + 7]
-                                                };
+    if (    (CN(leaf, 0) - (W[leaf] / 2.) == bb(0, 0)) || (CN(leaf, 0) + (W[leaf] / 2.) == bb(1, 0)) ||
+            (CN(leaf, 1) - (W[leaf] / 2.) == bb(0, 1)) || (CN(leaf, 1) + (W[leaf] / 2.) == bb(1, 1)) ||
+            (CN(leaf, 2) - (W[leaf] / 2.) == bb(0, 2)) || (CN(leaf, 2) + (W[leaf] / 2.) == bb(1, 2)) ) is_boundary_cell[leaf] = 1;
 
-    for (Eigen::Vector3d corner: corners_mine) {
-        if (((corner[0] == bb.row(0)[0]) || (corner[0] == bb.row(1)[0])) ||
-            ((corner[1] == bb.row(0)[1]) || (corner[1] == bb.row(1)[1])) ||
-            ((corner[2] == bb.row(0)[2]) || (corner[2] == bb.row(1)[2]))) {
-            is_boundary_cell[leaf] = 1;
-        };
-    }   
+    if (leaf == 0) {
+        std::cout << CN.row(leaf) << " width: " << (W[leaf] / 2.) << std::endl;
+        std::cout << bb.row(0) << std::endl;
+        std::cout << bb.row(1) << std::endl;
+    }
 
     for (int child_p: PI[leaf]) {
         if (is_cage_point[child_p]) {
@@ -86,216 +81,50 @@ void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::Vect
         }
     }
 
-    bool using_knn = (search.size() > 1);
-    int MAX_SEARCH = using_knn ? search.cols() : CN.rows();
-    int other;
-
-    for (int other_knn_idx = 0; other_knn_idx < MAX_SEARCH; other_knn_idx++) {
-        if (using_knn) {
-            other = search[other_knn_idx];
-        } else {
-            other = other_knn_idx;
-        }
+    for (int other = leaf + 1; other < CN.rows(); other++) {
 
         if (other == leaf) continue;
 
         /*
             given that other is on a particular side of leaf,
             check to see if it touches leaf's cell on that side:
-                if any 3+ corners of other are included within leaf's "face",
-                it connects on that side
         */
 
-        // we also have corners_mine
-        // corners start at oc_pts[other * 8]
-        std::vector<Eigen::Vector3d> corners = { oc_pts[other * 8], oc_pts[other * 8 + 1],
-                                        oc_pts[other * 8 + 2], oc_pts[other * 8 + 3],
-                                        oc_pts[other * 8 + 4], oc_pts[other * 8 + 5],
-                                        oc_pts[other * 8 + 6], oc_pts[other * 8 + 7]
-                                        };
+        bool inXLimits = (fabs(CN(leaf, 0) - CN(other, 0)) < ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool inYLimits = (fabs(CN(leaf, 1) - CN(other, 1)) < ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool inZLimits = (fabs(CN(leaf, 2) - CN(other, 2)) < ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onRightPlane = ((CN(other, 0) - CN(leaf, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onLeftPlane = ((CN(leaf, 0) - CN(other, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onTopPlane = ((CN(other, 1) - CN(leaf, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onBottomPlane = ((CN(leaf, 1) - CN(other, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onFrontPlane = ((CN(other, 2) - CN(leaf, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onBackPlane = ((CN(leaf, 2) - CN(other, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
 
-        int match_right = 0;    
-        int match_left = 0;  
-        int match_top = 0;  
-        int match_bottom = 0;  
-        int match_front = 0;  
-        int match_back = 0;                         
+        bool match_right = (onRightPlane && inYLimits && inZLimits);   
+        bool match_left = (onLeftPlane && inYLimits && inZLimits);   
+        bool match_top = (onTopPlane && inXLimits && inZLimits);   
+        bool match_bottom = (onBottomPlane && inXLimits && inZLimits);   
+        bool match_front = (onFrontPlane && inYLimits && inXLimits);   
+        bool match_back = (onBackPlane && inYLimits && inXLimits);   
 
-        for (Eigen::Vector3d corner: corners) {
-            bool inXLimits = (corner[0] >= (CN(leaf, 0) - W[leaf] / 2.)) && (corner[0] <= (CN(leaf, 0) + W[leaf] / 2.));
-            bool inYLimits = (corner[1] >= (CN(leaf, 1) - W[leaf] / 2.)) && (corner[1] <= (CN(leaf, 1) + W[leaf] / 2.));
-            bool inZLimits = (corner[2] >= (CN(leaf, 2) - W[leaf] / 2.)) && (corner[2] <= (CN(leaf, 2) + W[leaf] / 2.));
-            bool onRightPlane = (corner[0] == (CN(leaf, 0) + W[leaf] / 2.));
-            bool onLeftPlane = (corner[0] == (CN(leaf, 0) - W[leaf] / 2.));
-            bool onTopPlane = (corner[1] == (CN(leaf, 1) + W[leaf] / 2.));
-            bool onBottomPlane = (corner[1] == (CN(leaf, 1) - W[leaf] / 2.));
-            bool onFrontPlane = (corner[2] == (CN(leaf, 2) + W[leaf] / 2.));
-            bool onBackPlane = (corner[2] == (CN(leaf, 2) - W[leaf] / 2.));
-
-            if (onRightPlane && inYLimits && inZLimits) {
-                match_right++;
-            }
-
-            if (onLeftPlane && inYLimits && inZLimits) {
-                match_left++;
-            }
-
-            if (onTopPlane && inXLimits && inZLimits) {
-                match_top++;
-            }
-
-            if (onBottomPlane && inXLimits && inZLimits) {
-                match_bottom++;
-            }
-
-            if (onFrontPlane && inXLimits && inYLimits) {
-                match_front++;
-            }
-
-            if (onBackPlane && inXLimits && inYLimits) {
-                match_back++;
-            }
-
-        } 
-
-        int match_right_rev = 0;    
-        int match_left_rev = 0;  
-        int match_top_rev = 0;  
-        int match_bottom_rev = 0;  
-        int match_front_rev = 0;  
-        int match_back_rev = 0;  
-
-        for (Eigen::Vector3d corner: corners_mine) {
-            bool inXLimits = (corner[0] >= (CN(other, 0) - W[other] / 2.)) && (corner[0] <= (CN(other, 0) + W[other] / 2.));
-            bool inYLimits = (corner[1] >= (CN(other, 1) - W[other] / 2.)) && (corner[1] <= (CN(other, 1) + W[other] / 2.));
-            bool inZLimits = (corner[2] >= (CN(other, 2) - W[other] / 2.)) && (corner[2] <= (CN(other, 2) + W[other] / 2.));
-            bool onRightPlane = (corner[0] == (CN(other, 0) + W[other] / 2.));
-            bool onLeftPlane = (corner[0] == (CN(other, 0) - W[other] / 2.));
-            bool onTopPlane = (corner[1] == (CN(other, 1) + W[other] / 2.));
-            bool onBottomPlane = (corner[1] == (CN(other, 1) - W[other] / 2.));
-            bool onFrontPlane = (corner[2] == (CN(other, 2) + W[other] / 2.));
-            bool onBackPlane = (corner[2] == (CN(other, 2) - W[other] / 2.));
-
-            if (onRightPlane && inYLimits && inZLimits) {
-                match_left_rev++;
-            }
-
-            if (onLeftPlane && inYLimits && inZLimits) {
-                match_right_rev++;
-            }
-
-            if (onTopPlane && inXLimits && inZLimits) {
-                match_bottom_rev++;
-            }
-
-            if (onBottomPlane && inXLimits && inZLimits) {
-                match_top_rev++;
-            }
-
-            if (onFrontPlane && inXLimits && inYLimits) {
-                match_back_rev++;
-            }
-
-            if (onBackPlane && inXLimits && inYLimits) {
-                match_front_rev++;
-            }
-
-        }  
-
-        if ((match_right >= 3) || (match_right_rev >= 3)) {
-
-            // if (leaf == 17) {
-            //     std::cout << "17 is getting a right neighbor" << std::endl;
-            // } else if (other == 17) {
-            //     std::cout << "17 is getting a left neighbor" << std::endl;
-            // }
-
+        if (match_right) {
             neighs[leaf].right.push_back(other);
-
-            // std::vector<int> & leaf_s = neighs[leaf].right;
-            // std::vector<int> & other_s = neighs[other].left;
-            // if (std::find(leaf_s.begin(), leaf_s.end(), other) == leaf_s.end()) leaf_s.push_back(other);
-            // if (std::find(other_s.begin(), other_s.end(), leaf) == other_s.end()) other_s.push_back(leaf);
-        }
-
-        if ((match_left >= 3) || (match_left_rev >= 3)) {
-
-            // if (leaf == 17) {
-            //     std::cout << "17 is getting a left neighbor" << std::endl;
-            // } else if (other == 17) {
-            //     std::cout << "17 is getting a right neighbor" << std::endl;
-            // }
-
+            neighs[other].left.push_back(leaf);
+        } if (match_left) {
             neighs[leaf].left.push_back(other);
-
-            // std::vector<int> & leaf_s = neighs[leaf].left;
-            // std::vector<int> & other_s = neighs[other].right;
-            // if (std::find(leaf_s.begin(), leaf_s.end(), other) == leaf_s.end()) leaf_s.push_back(other);
-            // if (std::find(other_s.begin(), other_s.end(), leaf) == other_s.end()) other_s.push_back(leaf);
-        }
-
-        if ((match_top >= 3) || (match_top_rev >= 3)) {
-
-            // if (leaf == 17) {
-            //     std::cout << "17 is getting a top neighbor" << std::endl;
-            // } else if (other == 17) {
-            //     std::cout << "17 is getting a bottom neighbor" << std::endl;
-            // }
-
+            neighs[other].right.push_back(leaf);
+        } if (match_top) {
             neighs[leaf].top.push_back(other);
-
-            // std::vector<int> & leaf_s = neighs[leaf].top;
-            // std::vector<int> & other_s = neighs[other].bottom;
-            // if (std::find(leaf_s.begin(), leaf_s.end(), other) == leaf_s.end()) leaf_s.push_back(other);
-            // if (std::find(other_s.begin(), other_s.end(), leaf) == other_s.end()) other_s.push_back(leaf);
-        }
-
-        if ((match_bottom >= 3) || (match_bottom_rev >= 3)) {
-
-            // if (leaf == 17) {
-            //     std::cout << "17 is getting a bottom neighbor" << std::endl;
-            // } else if (other == 17) {
-            //     std::cout << "17 is getting a top neighbor" << std::endl;
-            // }
-
+            neighs[other].bottom.push_back(leaf);
+        } if (match_bottom) {
             neighs[leaf].bottom.push_back(other);
-
-            // std::vector<int> & leaf_s = neighs[leaf].bottom;
-            // std::vector<int> & other_s = neighs[other].top;
-            // if (std::find(leaf_s.begin(), leaf_s.end(), other) == leaf_s.end()) leaf_s.push_back(other);
-            // if (std::find(other_s.begin(), other_s.end(), leaf) == other_s.end()) other_s.push_back(leaf);
-        }
-
-        if ((match_front >= 3) || (match_front_rev >= 3)) {
-
-            // if (leaf == 17) {
-            //     std::cout << "17 is getting a front neighbor" << std::endl;
-            // } else if (other == 17) {
-            //     std::cout << "17 is getting a back neighbor" << std::endl;
-            // }
-
+            neighs[other].top.push_back(leaf);
+        } if (match_front) {
             neighs[leaf].front.push_back(other);
-
-            // std::vector<int> & leaf_s = neighs[leaf].front;
-            // std::vector<int> & other_s = neighs[other].back;
-            // if (std::find(leaf_s.begin(), leaf_s.end(), other) == leaf_s.end()) leaf_s.push_back(other);
-            // if (std::find(other_s.begin(), other_s.end(), leaf) == other_s.end()) other_s.push_back(leaf);
-        }
-
-        if ((match_back >= 3) || (match_back_rev >= 3)) {
-
-            // if (leaf == 17) {
-            //     std::cout << "17 is getting a back neighbor" << std::endl;
-            // } else if (other == 17) {
-            //     std::cout << "17 is getting a front neighbor" << std::endl;
-            // }
-
+            neighs[other].back.push_back(leaf);
+        } if (match_back) {
             neighs[leaf].back.push_back(other);
-
-            // std::vector<int> & leaf_s = neighs[leaf].back;
-            // std::vector<int> & other_s = neighs[other].front;
-            // if (std::find(leaf_s.begin(), leaf_s.end(), other) == leaf_s.end()) leaf_s.push_back(other);
-            // if (std::find(other_s.begin(), other_s.end(), leaf) == other_s.end()) other_s.push_back(leaf);
+            neighs[other].front.push_back(leaf);
         }
 
     }
@@ -340,18 +169,13 @@ std::tuple<std::vector<struct CellNeighbors>, Eigen::VectorXi, Eigen::VectorXi> 
 
     for (int leaf = 0; leaf < CN.rows(); leaf++) {
 
+        searchForNeighbors(leaf, PI, search_null, CN, W, is_cage_point, 
+                        bb, is_boundary_cell, is_cage_cell, neighs);
+
         if ((   (neighs[leaf].right.size() == 0) || (neighs[leaf].left.size() == 0) || (neighs[leaf].top.size() == 0) || 
-                (neighs[leaf].bottom.size() == 0) || (neighs[leaf].front.size() == 0) || (neighs[leaf].back.size() == 0)) && (!is_boundary_cell(leaf))) {
-            // std::cout << "\tTrying to fix " << leaf << std::endl;
-            searchForNeighbors(leaf, PI, search_null, CN, W, is_cage_point, 
-                        oc_pts, oc_edges, bb,
-                        is_boundary_cell, is_cage_cell, neighs);
-            // check again
-            if ((   (neighs[leaf].right.size() == 0) || (neighs[leaf].left.size() == 0) || (neighs[leaf].top.size() == 0) || 
                 (neighs[leaf].bottom.size() == 0) || (neighs[leaf].front.size() == 0) || (neighs[leaf].back.size() == 0)) && (!is_boundary_cell(leaf))) {
                 throw std::runtime_error("Unfortunately, " + std::to_string(leaf) + " is not connected on all sides. This is a sad day");
             }
-        }
 
         for (int n: neighs[leaf].right) {
             neighs[leaf].all.push_back(n);
@@ -448,7 +272,7 @@ getLeaves(Eigen::MatrixXd &P,
             } 
 
             if (PI_l[leaf_idx].size() > 1) {
-                throw std::runtime_error(leaf_idx + " has more than one child");
+                throw std::runtime_error(std::to_string(leaf_idx) + " has more than one child");
             }
 
             CN_l.row(leaf_idx) = CN.row(idx);

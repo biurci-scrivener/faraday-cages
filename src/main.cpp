@@ -153,6 +153,7 @@ int main(int argc, char **argv) {
   pc_oc->setEnabled(false);
 
   pc_cn->addScalarQuantity("Boundary cells", is_boundary_cell);
+  pc_cn->addScalarQuantity("Cage cells", is_cage_cell);
 
   pc_cn->addScalarQuantity("Laplacian solve (uniform)", u_uni);
   Eigen::VectorXd laplacian_error_uniform = (u_uni - bdry_vals).cwiseAbs();
@@ -160,7 +161,7 @@ int main(int argc, char **argv) {
 
   pc_cn->addScalarQuantity("Laplacian solve (weighted)", u_weight);
   Eigen::VectorXd laplacian_error_weighted = (u_weight - bdry_vals).cwiseAbs();
-  auto vs_le_w = pc_cn->addScalarQuantity("Laplacian error (weighted)", laplacian_error_weighted);
+  auto vs_le_w = pc_cn->addScalarQuantity("Laplacian error (weighted, 2 neighbors)", laplacian_error_weighted);
 
   pc_cn->addScalarQuantity("Laplacian solve (weighted, 4 neighbors)", u_weight_4);
   Eigen::VectorXd laplacian_error_weighted_4 = (u_weight_4 - bdry_vals).cwiseAbs();
