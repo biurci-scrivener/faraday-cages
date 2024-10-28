@@ -1,21 +1,10 @@
-#include "polyscope/polyscope.h"
-#include "polyscope/point_cloud.h"
-#include "polyscope/curve_network.h"
-
 #include "args/args.hxx"
 #include "imgui.h"
 
 #include "io.h"
-#include "oct_helper.h"
+#include "polyscope_misc.h"
+#include "solve.h"
 
-#include "../deps/libigl/include/igl/octree.h"
-#include "../deps/libigl/include/igl/bounding_box.h"
-
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
-
-#include <queue>
-#include <unordered_map>
 
 // A user-defined callback, for creating control panels (etc)
 // Use ImGUI commands to build whatever you want here, see
@@ -23,165 +12,6 @@
 void myCallback() {
 
 
-}
-
-std::tuple<std::vector<Eigen::Vector3d>, std::vector<Eigen::Vector2i>> visOctree(Eigen::MatrixXd CN, Eigen::VectorXd W) {
-  std::vector<Eigen::Vector3d> points;
-  std::vector<Eigen::Vector2i> edges;
-  size_t idx_base = 0;
-
-  for (int leaf = 0; leaf < CN.rows(); leaf++){
-    Eigen::Vector3d center = CN.row(leaf);
-    double width = W.coeffRef(leaf) / 2.;
-
-    // generate 8 points
-    
-    points.push_back({center[0] - width, center[1] - width, center[2] - width}); // 0
-    points.push_back({center[0] - width, center[1] - width, center[2] + width}); // 1
-    points.push_back({center[0] - width, center[1] + width, center[2] - width}); // 2
-    points.push_back({center[0] - width, center[1] + width, center[2] + width}); // 3
-    points.push_back({center[0] + width, center[1] - width, center[2] - width}); // 4
-    points.push_back({center[0] + width, center[1] - width, center[2] + width}); // 5
-    points.push_back({center[0] + width, center[1] + width, center[2] - width}); // 6
-    points.push_back({center[0] + width, center[1] + width, center[2] + width}); // 7
-
-    // generate 12 edges
-    edges.push_back({idx_base + 0, idx_base + 1});
-    edges.push_back({idx_base + 0, idx_base + 2});
-    edges.push_back({idx_base + 0, idx_base + 4});
-    edges.push_back({idx_base + 1, idx_base + 3});
-    edges.push_back({idx_base + 1, idx_base + 5});
-    edges.push_back({idx_base + 2, idx_base + 3});
-    edges.push_back({idx_base + 2, idx_base + 6});
-    edges.push_back({idx_base + 3, idx_base + 7});
-    edges.push_back({idx_base + 4, idx_base + 5});
-    edges.push_back({idx_base + 4, idx_base + 6});
-    edges.push_back({idx_base + 5, idx_base + 7});
-    edges.push_back({idx_base + 6, idx_base + 7});
-
-    idx_base += 8;
-  }
-
-  return std::make_tuple(points, edges);
-}
-
-std::tuple< std::vector<std::vector<int>>,
-            Eigen::MatrixXd, 
-            Eigen::VectorXd,
-            std::unordered_map<int, int>, 
-            std::unordered_map<int, int>,
-            Eigen::VectorXi,
-            Eigen::VectorXi,
-            Eigen::VectorXi,
-            Eigen::VectorXi> 
-getLeaves(Eigen::MatrixXd &P,
-            std::vector<std::vector<int>> &PI, 
-            Eigen::MatrixXi &CH, 
-            Eigen::MatrixXd &CN, 
-            Eigen::VectorXd &W) {
-  
-  int nCells = CN.rows();
-
-  Eigen::VectorXi parents(nCells);
-  parents[0] = -1;
-  Eigen::VectorXi depths = Eigen::VectorXi::Ones(nCells) * -1;
-  depths[0] = 0; // root is 1
-
-  // assign a depth to each cell 
-  
-  std::queue<int> bfs;
-  bfs.push(0);
-  int leaf_count = 0;
-    
-  for (; !bfs.empty(); bfs.pop()) {
-    int curr = bfs.front();
-    int curr_depth = depths[curr];
-
-    Eigen::VectorXi children = CH.row(curr);
-
-    if (children[0] == - 1) {
-      // leaf;
-      leaf_count++;
-      continue;
-    }
-
-    for (auto child: children) {
-      parents[child] = curr;
-      depths[child] = curr_depth + 1;
-      bfs.push(child);
-    }
-  }
-
-  std::cout << "Assigned depths and parents" << std::endl;
-
-  // set aside and reindex leaf cells
-  std::vector<std::vector<int>> PI_l(leaf_count);
-  Eigen::MatrixXd CN_l(leaf_count, 3);
-  Eigen::VectorXd W_l(leaf_count);
-  std::unordered_map<int, int> leaf_to_all;
-  std::unordered_map<int, int> all_to_leaf;
-  Eigen::VectorXi depths_l(leaf_count);
-  Eigen::VectorXi parents_l(leaf_count);
-
-  int leaf_idx = 0;
-  for (int idx = 0; idx < nCells; idx++) {
-    if (CH(idx, 0) == -1) {
-      // idx is a leaf node
-
-      leaf_to_all[leaf_idx] = idx;
-      all_to_leaf[idx] = leaf_idx;
-
-      for (int child: PI[idx]) {
-        PI_l[leaf_idx].push_back(child);
-      } 
-
-      CN_l.row(leaf_idx) = CN.row(idx);
-      W_l[leaf_idx] = W(idx);
-      depths_l[leaf_idx] = depths[idx];
-      parents_l[leaf_idx] = parents[idx];
-
-      leaf_idx++;
-    }
-  }
-  
-  return std::make_tuple(PI_l, CN_l, W_l, leaf_to_all, all_to_leaf, depths, depths_l, parents, parents_l);
-}
-
-void appendBBPts(Eigen::MatrixXd &P, Eigen::MatrixXd &N) {
-  Eigen::MatrixXd BV;
-  Eigen::MatrixXi BF;
-  
-  igl::bounding_box(P, BV, BF);
-
-  double PADDING = 0.5;
-
-  Eigen::Vector3d bb_max = BV.row(0);
-  Eigen::Vector3d bb_min = BV.row(7);
-
-  Eigen::Vector3d delta = bb_max - bb_min * PADDING;
-  delta = delta.cwiseAbs();
-
-  P.conservativeResize(P.rows() + 8, P.cols());
-  P.row(P.rows() - 8) << bb_min[0] - delta[0], bb_min[1] - delta[1], bb_min[2] - delta[2];
-  P.row(P.rows() - 7) << bb_min[0] - delta[0], bb_min[1] - delta[1], bb_max[2] + delta[2];
-  P.row(P.rows() - 6) << bb_min[0] - delta[0], bb_max[1] + delta[1], bb_min[2] - delta[2];
-  P.row(P.rows() - 5) << bb_min[0] - delta[0], bb_max[1] + delta[1], bb_max[2] + delta[2];
-  P.row(P.rows() - 4) << bb_max[0] + delta[0], bb_min[1] - delta[1], bb_min[2] - delta[2];
-  P.row(P.rows() - 3) << bb_max[0] + delta[0], bb_min[1] - delta[1], bb_max[2] + delta[2];
-  P.row(P.rows() - 2) << bb_max[0] + delta[0], bb_max[1] + delta[1], bb_min[2] - delta[2];
-  P.row(P.rows() - 1) << bb_max[0] + delta[0], bb_max[1] + delta[1], bb_max[2] + delta[2];
-
-  // add dummy normals for corners
-  N.conservativeResize(N.rows() + 8, N.cols());
-  N.row(N.rows() - 8) << 0., 0., 0.;
-  N.row(N.rows() - 7) << 0., 0., 0.;
-  N.row(N.rows() - 6) << 0., 0., 0.;
-  N.row(N.rows() - 5) << 0., 0., 0.;
-  N.row(N.rows() - 4) << 0., 0., 0.;
-  N.row(N.rows() - 3) << 0., 0., 0.;
-  N.row(N.rows() - 2) << 0., 0., 0.;
-  N.row(N.rows() - 1) << 0., 0., 0.;
-  
 }
 
 int main(int argc, char **argv) {
@@ -214,12 +44,15 @@ int main(int argc, char **argv) {
   Eigen::MatrixXd P;
   Eigen::MatrixXd N;
 
-  // load point cloud
+  // load point cloud 
   std::tie(P, N) = parsePLY(filename);
 
   std::cout << "Loaded file" << std::endl;
 
-  appendBBPts(P, N);
+  Eigen::VectorXi is_boundary_point;
+  Eigen::VectorXi is_cage_point;
+  Eigen::MatrixXd bb;
+  std::tie(is_boundary_point, is_cage_point, bb) = appendBoundaryAndCage(P, N);
 
   // Initialize polyscope
   polyscope::init();
@@ -234,9 +67,6 @@ int main(int argc, char **argv) {
   Eigen::VectorXd W; //  cell widths
 
   igl::octree(P, PI, CH, CN, W);
-
-  // now, remove the corner points used to pad out the input so that the octree would fill the space
-  // TODO
 
   std::cout << "Built octree" << std::endl;
 
@@ -260,31 +90,57 @@ int main(int argc, char **argv) {
   std::tie(oc_pts, oc_edges) = visOctree(CN_l, W_l);
 
   std::cout << "Built octree vis." << std::endl;
-
-  std::vector<struct CellNeighbors> neighs = createLeafNeighbors(CN_l, W_l, oc_pts, oc_edges);
+  
+  std::vector<struct CellNeighbors> neighs;
+  Eigen::VectorXi is_boundary_cell;
+  Eigen::VectorXi is_cage_cell;
+  std::tie(neighs, is_boundary_cell, is_cage_cell) = createLeafNeighbors(PI_l, CN_l, W_l, is_cage_point, oc_pts, oc_edges, bb);
 
   std::cout << "Built leaf connectivity" << std::endl;
-
-  Eigen::VectorXi is_boundary = splitBoundaryInteriorCells(neighs);
 
   std::cout << "Octree statistics:" << std::endl
             << "\tNumber of cells: " << CN.rows() << std::endl
             << "\tNumber of leaf cells: " << CN_l.rows() << std::endl;
 
+  // auto pc_ = polyscope::registerPointCloud("Points", P);
+  // pc_->addVectorQuantity("True Normals", N);
+  // pc_->setEnabled(true);
+
+  // auto pc_cn_ = polyscope::registerPointCloud("Octree cell centers (leaves)", CN_l);
+  // pc_cn_->addScalarQuantity("Depth", depths_l);
+  // pc_cn_->addScalarQuantity("Parents", parents_l);
+  // pc_cn_->addScalarQuantity("Boundary cells", is_boundary_cell);
+  // pc_cn_->addScalarQuantity("cage cells", is_cage_cell);
+
+  // auto pc_oc_ = polyscope::registerCurveNetwork("Octree edges", oc_pts, oc_edges);
+  // pc_oc_->setEnabled(false);
+
+  // polyscope::show();
+
   // solve Dirichlet problem, as a test
 
   Eigen::VectorXd bdry_vals = Eigen::VectorXd::Zero(CN_l.rows());
 
+  Eigen::Vector3d dir = {1.,1.,1.};
+  dir.normalize();
+
   for (int leaf = 0; leaf < CN_l.rows(); leaf++) {
-    bdry_vals[leaf] = CN_l(leaf, 0); // + CN_l(leaf, 1) + CN_l(leaf, 2);
+    bdry_vals[leaf] = dir.dot(CN_l.row(leaf));
+    // bdry_vals[leaf] = CN_l(leaf, 0); // + CN_l(leaf, 1) + CN_l(leaf, 2);
   }
 
-  Eigen::VectorXd u_uni = solveDirichletProblem(CN_l, W_l, neighs, is_boundary, depths_l, bdry_vals, 0);
-  Eigen::VectorXd u_weight = solveDirichletProblem(CN_l, W_l, neighs, is_boundary, depths_l, bdry_vals, 2);
-  Eigen::VectorXd u_weight_4 = solveDirichletProblem(CN_l, W_l, neighs, is_boundary, depths_l, bdry_vals, 4);
+  std::cout << "Solving Dirichlet problem" << std::endl;
+
+  Eigen::VectorXd u_uni = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 0);
+  std::cout << "\tUniform done" << std::endl;
+  Eigen::VectorXd u_weight = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 2);
+  std::cout << "\tNeighs = 2 done" << std::endl;
+  Eigen::VectorXd u_weight_4 = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 4);
+  std::cout << "\tNeighs = 4 done" << std::endl;
 
   std::cout << "Solved Dirichlet problem" << std::endl;
 
+  // Visualize!
 
   auto pc = polyscope::registerPointCloud("Points", P);
   pc->addVectorQuantity("True Normals", N);
@@ -296,7 +152,7 @@ int main(int argc, char **argv) {
   auto pc_oc = polyscope::registerCurveNetwork("Octree edges", oc_pts, oc_edges);
   pc_oc->setEnabled(false);
 
-  pc_cn->addScalarQuantity("Boundary cells", is_boundary);
+  pc_cn->addScalarQuantity("Boundary cells", is_boundary_cell);
 
   pc_cn->addScalarQuantity("Laplacian solve (uniform)", u_uni);
   Eigen::VectorXd laplacian_error_uniform = (u_uni - bdry_vals).cwiseAbs();
@@ -316,6 +172,8 @@ int main(int argc, char **argv) {
   vs_le_w->setMapRange(std::pair<double,double>(0, fmax(fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted.maxCoeff()), laplacian_error_weighted_4.maxCoeff())));
   vs_le_w_4->setColorMap("blues");
   vs_le_w_4->setMapRange(std::pair<double,double>(0, fmax(fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted.maxCoeff()), laplacian_error_weighted_4.maxCoeff())));
+
+  generate_world_axes({3.,0.,0.});
 
   // Give control to the polyscope gui
   polyscope::show();
