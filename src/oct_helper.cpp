@@ -1,5 +1,9 @@
 #include "oct_helper.h"
 
+bool is_close(double a, double b) {
+    return fabs(a - b) < 1e-12;
+}
+
 template <typename T> std::vector<int> sort_indexes(const std::vector<T> &v) {
 
     // from https://stackoverflow.com/questions/1577475/c-sorting-and-keeping-track-of-indexes
@@ -16,6 +20,20 @@ template <typename T> std::vector<int> sort_indexes(const std::vector<T> &v) {
         [&v](int i1, int i2) {return v[i1] < v[i2];});
 
     return idx;
+}
+
+Eigen::MatrixXd octreeBB(Eigen::MatrixXd &CN) {
+
+    Eigen::MatrixXd BV;
+    Eigen::MatrixXi BF;
+
+    igl::bounding_box(CN, BV, BF);
+    
+    Eigen::MatrixXd bb(2,3);
+    bb.row(0) << BV.row(7); // min
+    bb.row(1) << BV.row(0); // max
+
+    return bb;
 }
 
 std::tuple<std::vector<int>, Eigen::VectorXd, double> getNClosestNeighs(int leaf, std::vector<int> &neighs, int n, Eigen::MatrixXd &CN) {
@@ -63,17 +81,11 @@ double getNeighDepthDelta(int leaf, std::vector<int> &neighs, Eigen::VectorXi &d
 double getDistanceFromDelta(int leaf, int depth_gap, Eigen::VectorXd &W) {return ((W[leaf] / 2.) + ((W[leaf] * pow(2, depth_gap)) / 2.));}
 
 void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::VectorXi &search, Eigen::MatrixXd &CN, Eigen::VectorXd &W, Eigen::VectorXi &is_cage_point, 
-                        Eigen::MatrixXd &bb, Eigen::VectorXi &is_boundary_cell, Eigen::VectorXi &is_cage_cell, std::vector<struct CellNeighbors> &neighs) {
+                        Eigen::MatrixXd &bb_oct, Eigen::VectorXi &is_boundary_cell, Eigen::VectorXi &is_cage_cell, std::vector<struct CellNeighbors> &neighs) {
 
-    if (    (CN(leaf, 0) - (W[leaf] / 2.) == bb(0, 0)) || (CN(leaf, 0) + (W[leaf] / 2.) == bb(1, 0)) ||
-            (CN(leaf, 1) - (W[leaf] / 2.) == bb(0, 1)) || (CN(leaf, 1) + (W[leaf] / 2.) == bb(1, 1)) ||
-            (CN(leaf, 2) - (W[leaf] / 2.) == bb(0, 2)) || (CN(leaf, 2) + (W[leaf] / 2.) == bb(1, 2)) ) is_boundary_cell[leaf] = 1;
-
-    if (leaf == 0) {
-        std::cout << CN.row(leaf) << " width: " << (W[leaf] / 2.) << std::endl;
-        std::cout << bb.row(0) << std::endl;
-        std::cout << bb.row(1) << std::endl;
-    }
+    if (    (CN(leaf, 0) - (W[leaf] / 2.) <= bb_oct(0, 0)) || (CN(leaf, 0) + (W[leaf] / 2.) >= bb_oct(1, 0)) ||
+            (CN(leaf, 1) - (W[leaf] / 2.) <= bb_oct(0, 1)) || (CN(leaf, 1) + (W[leaf] / 2.) >= bb_oct(1, 1)) ||
+            (CN(leaf, 2) - (W[leaf] / 2.) <= bb_oct(0, 2)) || (CN(leaf, 2) + (W[leaf] / 2.) >= bb_oct(1, 2)) ) is_boundary_cell[leaf] = 1;
 
     for (int child_p: PI[leaf]) {
         if (is_cage_point[child_p]) {
@@ -83,8 +95,6 @@ void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::Vect
 
     for (int other = leaf + 1; other < CN.rows(); other++) {
 
-        if (other == leaf) continue;
-
         /*
             given that other is on a particular side of leaf,
             check to see if it touches leaf's cell on that side:
@@ -93,12 +103,19 @@ void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::Vect
         bool inXLimits = (fabs(CN(leaf, 0) - CN(other, 0)) < ((W[leaf] / 2.) + (W[other] / 2.)));
         bool inYLimits = (fabs(CN(leaf, 1) - CN(other, 1)) < ((W[leaf] / 2.) + (W[other] / 2.)));
         bool inZLimits = (fabs(CN(leaf, 2) - CN(other, 2)) < ((W[leaf] / 2.) + (W[other] / 2.)));
-        bool onRightPlane = ((CN(other, 0) - CN(leaf, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        bool onLeftPlane = ((CN(leaf, 0) - CN(other, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        bool onTopPlane = ((CN(other, 1) - CN(leaf, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        bool onBottomPlane = ((CN(leaf, 1) - CN(other, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        bool onFrontPlane = ((CN(other, 2) - CN(leaf, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        bool onBackPlane = ((CN(leaf, 2) - CN(other, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+
+        // bool onRightPlane = ((CN(other, 0) - CN(leaf, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        // bool onLeftPlane = ((CN(leaf, 0) - CN(other, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        // bool onTopPlane = ((CN(other, 1) - CN(leaf, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        // bool onBottomPlane = ((CN(leaf, 1) - CN(other, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        // bool onFrontPlane = ((CN(other, 2) - CN(leaf, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        // bool onBackPlane = ((CN(leaf, 2) - CN(other, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onRightPlane = is_close((CN(other, 0) - CN(leaf, 0)), ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onLeftPlane = is_close((CN(leaf, 0) - CN(other, 0)), ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onTopPlane = is_close((CN(other, 1) - CN(leaf, 1)), ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onBottomPlane = is_close((CN(leaf, 1) - CN(other, 1)), ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onFrontPlane = is_close((CN(other, 2) - CN(leaf, 2)), ((W[leaf] / 2.) + (W[other] / 2.)));
+        bool onBackPlane = is_close((CN(leaf, 2) - CN(other, 2)), ((W[leaf] / 2.) + (W[other] / 2.)));
 
         bool match_right = (onRightPlane && inYLimits && inZLimits);   
         bool match_left = (onLeftPlane && inYLimits && inZLimits);   
@@ -130,7 +147,7 @@ void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::Vect
     }
 }
 
-std::tuple<std::vector<struct CellNeighbors>, Eigen::VectorXi, Eigen::VectorXi> createLeafNeighbors(std::vector<std::vector<int>> &PI, Eigen::MatrixXd &CN, Eigen::VectorXd &W, Eigen::VectorXi &is_cage_point, std::vector<Eigen::Vector3d> &oc_pts, std::vector<Eigen::Vector2i> &oc_edges, Eigen::MatrixXd &bb) {
+std::tuple<std::vector<struct CellNeighbors>, Eigen::VectorXi, Eigen::VectorXi> createLeafNeighbors(std::vector<std::vector<int>> &PI, Eigen::MatrixXd &CN, Eigen::VectorXd &W, Eigen::VectorXi &is_cage_point, std::vector<Eigen::Vector3d> &oc_pts, std::vector<Eigen::Vector2i> &oc_edges, Eigen::MatrixXd &bb_oct) {
     /*
     
         Takes CN_l and W_l (computes neighbor relationships for leaves only)
@@ -141,39 +158,58 @@ std::tuple<std::vector<struct CellNeighbors>, Eigen::VectorXi, Eigen::VectorXi> 
     Eigen::VectorXi is_boundary_cell = Eigen::VectorXi::Zero(CN.rows());
     Eigen::VectorXi is_cage_cell = Eigen::VectorXi::Zero(CN.rows());
 
-    // DOUBLE OCTREE TIME
-
-    // std::vector<std::vector<int >> PI_oct;
-    // Eigen::MatrixXi CH_oct;
-    // Eigen::MatrixXd CN_oct;
-    // Eigen::VectorXd W_oct;
-    // Eigen::MatrixXi knn;
-
-    // igl::octree(CN, PI_oct, CH_oct, CN_oct, W_oct);
-    // igl::knn(CN, 100, PI_oct, CH_oct, CN_oct, W_oct, knn);
-
-    // std::cout << "Build KNN" << std::endl;
-
     Eigen::VectorXi search_null(1);
-
-    // for (int leaf = 0; leaf < CN.rows(); leaf++) {
-
-    //     Eigen::VectorXi search = knn.row(leaf);
-    //     searchForNeighbors(leaf, PI, search, CN, W, is_cage_point, 
-    //                             oc_pts, oc_edges, bb,
-    //                             is_boundary_cell, is_cage_cell, neighs);
-    // }
-
-    // validate that each cell has neighbors on all sides
-    // if not... rerun the search over ALL cells
 
     for (int leaf = 0; leaf < CN.rows(); leaf++) {
 
         searchForNeighbors(leaf, PI, search_null, CN, W, is_cage_point, 
-                        bb, is_boundary_cell, is_cage_cell, neighs);
+                        bb_oct, is_boundary_cell, is_cage_cell, neighs);
 
         if ((   (neighs[leaf].right.size() == 0) || (neighs[leaf].left.size() == 0) || (neighs[leaf].top.size() == 0) || 
                 (neighs[leaf].bottom.size() == 0) || (neighs[leaf].front.size() == 0) || (neighs[leaf].back.size() == 0)) && (!is_boundary_cell(leaf))) {
+                std::cout << "ERROR at leaf: " << leaf << std::endl;
+                std::cout << "\tRight neighs: ";
+                for (int n: neighs[leaf].right) {
+                    std::cout << n << " ";
+                }
+                std::cout << std::endl;
+
+                std::cout << "\tLeft neighs: ";
+                for (int n: neighs[leaf].left) {
+                    std::cout << n << " ";
+                }
+                std::cout << std::endl;
+
+                std::cout << "\tTop neighs: ";
+                for (int n: neighs[leaf].top) {
+                    std::cout << n << " ";
+                }
+                std::cout << std::endl;
+
+                std::cout << "\tBottom neighs: ";
+                for (int n: neighs[leaf].bottom) {
+                    std::cout << n << " ";
+                }
+                std::cout << std::endl;
+
+                std::cout << "\tFront neighs: ";
+                for (int n: neighs[leaf].front) {
+                    std::cout << n << " ";
+                }
+                std::cout << std::endl;
+
+                std::cout << "\tBack neighs: ";
+                for (int n: neighs[leaf].back) {
+                    std::cout << n << " ";
+                }
+                std::cout << std::endl;
+
+                std::cout << "\tIs boundary: " << (is_boundary_cell(leaf) ? "Yes" : "No") << std::endl;
+                std::cout << "\tIs cage: " << (is_cage_cell(leaf) ? "Yes" : "No") << std::endl;
+                std::cout << "\tCenter: " << CN(leaf, 0) << " " << CN(leaf, 1) << " " << CN(leaf, 2) << " " << std::endl;
+                std::cout << "\tWidth: " << W(leaf) << std::endl;
+                std::cout << "\tBB_oct: " << bb_oct(0, 0) << " " << bb_oct(0, 1) << " " << bb_oct(0, 2) << ", " << bb_oct(1, 0) << " " << bb_oct(1, 1) << " " << bb_oct(1, 2) << " " << std::endl;
+
                 throw std::runtime_error("Unfortunately, " + std::to_string(leaf) + " is not connected on all sides. This is a sad day");
             }
 
@@ -194,6 +230,10 @@ std::tuple<std::vector<struct CellNeighbors>, Eigen::VectorXi, Eigen::VectorXi> 
         }
         for (int n: neighs[leaf].back) {
             neighs[leaf].all.push_back(n);
+        }
+
+        if (leaf % 1000 == 0) {
+            std::cout << "\tReached " << leaf << std::endl;
         }
         
     }
@@ -287,7 +327,7 @@ getLeaves(Eigen::MatrixXd &P,
     return std::make_tuple(PI_l, CN_l, W_l, leaf_to_all, all_to_leaf, depths, depths_l, parents, parents_l);
 }
 
-std::tuple<Eigen::VectorXi, Eigen::VectorXi, Eigen::MatrixXd> appendBoundaryAndCage(Eigen::MatrixXd &P, Eigen::MatrixXd &N) {
+std::tuple<Eigen::VectorXi, Eigen::VectorXi, std::vector<std::vector<int>>, Eigen::MatrixXd> appendBoundaryAndCage(Eigen::MatrixXd &P, Eigen::MatrixXd &N) {
     Eigen::MatrixXd BV;
     Eigen::MatrixXi BF;
 
@@ -325,7 +365,7 @@ std::tuple<Eigen::VectorXi, Eigen::VectorXi, Eigen::MatrixXd> appendBoundaryAndC
         add_rows.push_back({ bb_max[0] + pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] });
 
         // refine each square face
-        double REFINE_DEG = 5.;
+        double REFINE_DEG = 6.;
 
         // bottom 3
         Eigen::Vector3d base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
@@ -431,14 +471,18 @@ std::tuple<Eigen::VectorXi, Eigen::VectorXi, Eigen::MatrixXd> appendBoundaryAndC
     P.conservativeResize(P.rows() + add_rows.size(), P.cols());
     Eigen::VectorXi is_boundary_point = Eigen::VectorXi::Zero(P.rows());
     Eigen::VectorXi is_cage_point = Eigen::VectorXi::Zero(P.rows());
+    std::vector<std::vector<int>> my_cage_points(P.rows(), std::vector<int>());
+    
 
     int i = 0;
     for (Eigen::Vector3d row_to_add: add_rows) {
         P.row(START_BDRY + i) = row_to_add;
         if (i < START_CAGE - START_BDRY) {
             is_boundary_point[START_BDRY + i] = 1;
+            
         } else {
             is_cage_point[START_BDRY + i] = 1;
+            my_cage_points[(i - (START_CAGE - START_BDRY)) / 12].push_back(START_BDRY + i);
         }
         i++;
     }
@@ -452,7 +496,7 @@ std::tuple<Eigen::VectorXi, Eigen::VectorXi, Eigen::MatrixXd> appendBoundaryAndC
         i++;
     }
 
-    return std::make_tuple(is_boundary_point, is_cage_point, bb);
+    return std::make_tuple(is_boundary_point, is_cage_point, my_cage_points, bb);
 
 }
 
