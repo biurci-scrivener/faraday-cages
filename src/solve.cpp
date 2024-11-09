@@ -1,133 +1,45 @@
 #include "solve.h"
 
+size_t NUM_NEIGHS_GRAD = 64;
+size_t NUM_NEIGHS_LAPLACE = 4;
+
 Eigen::MatrixXd grad(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<struct CellNeighbors> &neighs, Eigen::VectorXi &is_boundary, Eigen::VectorXi &depths, Eigen::VectorXd &bdry_vals, Eigen::VectorXd &f) {
 
     Eigen::MatrixXd grad_all(CN.rows(), 3);
-    int NUM_NEIGHS = 64;
-
+    
     for (int leaf = 0; leaf < CN.rows(); leaf++) {
 
         Eigen::VectorXd grad_l = Eigen::VectorXd::Zero(3);
-
-        std::vector<int> right_closest;
+        
         Eigen::VectorXd right_ctr(3);
         double right_distance;
         double right_f = 0;
-        if (neighs[leaf].right.size() == 0) {
-            right_closest = neighs[leaf].right;
-            right_ctr << CN(leaf, 0) + W[leaf], CN(leaf, 1), CN(leaf, 2);
-            right_distance = abs(right_ctr[0] - CN(leaf, 0));
-            right_f = f[leaf];
-        } else if (neighs[leaf].right.size() > 1) {
-            std::tie(right_closest, right_ctr, right_distance) = getNClosestNeighs(leaf, neighs[leaf].right, NUM_NEIGHS, CN);
-            for (int n: right_closest) right_f += f[n];
-            right_f /= right_closest.size();
-        } else {
-            right_closest = neighs[leaf].right;
-            right_ctr << CN(neighs[leaf].right[0], 0), CN(leaf, 1), CN(leaf, 2);
-            right_distance = abs(right_ctr[0] - CN(leaf, 0));
-            right_f = f[neighs[leaf].right[0]];
-        }
+        std::tie(right_ctr, right_distance, right_f) = getNeighRep(leaf, neighs[leaf].right, NUM_NEIGHS_GRAD, CN, W, 0, f);
 
-        std::vector<int> left_closest;
         Eigen::VectorXd left_ctr(3);
         double left_distance;
         double left_f = 0;
-        if (neighs[leaf].left.size() == 0) {
-            left_closest = neighs[leaf].left;
-            left_ctr << CN(leaf, 0) - W[leaf], CN(leaf, 1), CN(leaf, 2);
-            left_distance = abs(right_ctr[0] - CN(leaf, 0));
-            left_f = f[leaf];
-        } else if (neighs[leaf].left.size() > 1) {
-            std::tie(left_closest, left_ctr, left_distance) = getNClosestNeighs(leaf, neighs[leaf].left, NUM_NEIGHS, CN);
-            for (int n: left_closest) left_f += f[n];
-            left_f /= left_closest.size();
-        } else {
-            left_closest = neighs[leaf].left;
-            left_ctr << CN(neighs[leaf].left[0], 0), CN(leaf, 1), CN(leaf, 2);
-            left_distance = abs(left_ctr[0] - CN(leaf, 0));
-            left_f = f[neighs[leaf].left[0]];
-        }
+        std::tie(left_ctr, left_distance, left_f) = getNeighRep(leaf, neighs[leaf].left, NUM_NEIGHS_GRAD, CN, W, 1, f);
 
-        std::vector<int> top_closest;
         Eigen::VectorXd top_ctr(3);
         double top_distance;
         double top_f = 0;
-        if (neighs[leaf].top.size() == 0) {
-            top_closest = neighs[leaf].top;
-            top_ctr << CN(leaf, 0), CN(leaf, 1) + W[leaf], CN(leaf, 2);
-            top_distance = abs(top_ctr[1] - CN(leaf, 1));
-            top_f = f[leaf];
-        } else if (neighs[leaf].top.size() > 1) {
-            std::tie(top_closest, top_ctr, top_distance) = getNClosestNeighs(leaf, neighs[leaf].top, NUM_NEIGHS, CN);
-            for (int n: top_closest) top_f += f[n];
-            top_f /= top_closest.size();
-        } else {
-            top_closest = neighs[leaf].top;
-            top_ctr << CN(leaf, 0), CN(neighs[leaf].top[0], 1), CN(leaf, 2);
-            top_distance = abs(top_ctr[1] - CN(leaf, 1));
-            top_f = f[neighs[leaf].top[0]];
-        }
-        
-        std::vector<int> bottom_closest;
+        std::tie(top_ctr, top_distance, top_f) = getNeighRep(leaf, neighs[leaf].top, NUM_NEIGHS_GRAD, CN, W, 2, f);
+
         Eigen::VectorXd bottom_ctr(3);
         double bottom_distance;
         double bottom_f = 0;
-        if (neighs[leaf].bottom.size() == 0) {
-            bottom_closest = neighs[leaf].bottom;
-            bottom_ctr << CN(leaf, 0), CN(leaf, 1) - W[leaf], CN(leaf, 2);
-            bottom_distance = abs(bottom_ctr[1] - CN(leaf, 1));
-            bottom_f = f[leaf];
-        } else if (neighs[leaf].bottom.size() > 1) {
-            std::tie(bottom_closest, bottom_ctr, bottom_distance) = getNClosestNeighs(leaf, neighs[leaf].bottom, NUM_NEIGHS, CN);
-            for (int n: bottom_closest) bottom_f += f[n];
-            bottom_f /= bottom_closest.size();
-        } else {
-            bottom_closest = neighs[leaf].bottom;
-            bottom_ctr << CN(leaf, 0), CN(neighs[leaf].bottom[0], 1), CN(leaf, 2);
-            bottom_distance = abs(bottom_ctr[1] - CN(leaf, 1));
-            bottom_f = f[neighs[leaf].bottom[0]];
-        }
-        
-        std::vector<int> front_closest;
+        std::tie(bottom_ctr, bottom_distance, bottom_f) = getNeighRep(leaf, neighs[leaf].bottom, NUM_NEIGHS_GRAD, CN, W, 3, f);
+
         Eigen::VectorXd front_ctr(3);
         double front_distance;
         double front_f = 0;
-        if (neighs[leaf].front.size() == 0) {
-            front_closest = neighs[leaf].front;
-            front_ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2) + W[leaf];
-            front_distance = abs(front_ctr[2] - CN(leaf, 2));
-            front_f = f[leaf];
-        } else if (neighs[leaf].front.size() > 1) {
-            std::tie(front_closest, front_ctr, front_distance) = getNClosestNeighs(leaf, neighs[leaf].front, NUM_NEIGHS, CN);
-            for (int n: front_closest) front_f += f[n];
-            front_f /= front_closest.size();
-        } else {
-            front_closest = neighs[leaf].front;
-            front_ctr << CN(leaf, 0), CN(leaf, 1), CN(neighs[leaf].front[0], 2);
-            front_distance = abs(front_ctr[2] - CN(leaf, 2));
-            front_f = f[neighs[leaf].front[0]];
-        }
+        std::tie(front_ctr, front_distance, front_f) = getNeighRep(leaf, neighs[leaf].front, NUM_NEIGHS_GRAD, CN, W, 4, f);
 
-        std::vector<int> back_closest;
         Eigen::VectorXd back_ctr(3);
         double back_distance;
         double back_f = 0;
-        if (neighs[leaf].back.size() == 0) {
-            back_closest = neighs[leaf].back;
-            back_ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2) - W[leaf];
-            back_distance = abs(back_ctr[2] - CN(leaf, 2));
-            back_f = f[leaf];
-        } else if (neighs[leaf].back.size() > 1) {
-            std::tie(back_closest, back_ctr, back_distance) = getNClosestNeighs(leaf, neighs[leaf].back, NUM_NEIGHS, CN);
-            for (int n: back_closest) back_f += f[n];
-            back_f /= back_closest.size();
-        } else {
-            back_closest = neighs[leaf].back;
-            back_ctr << CN(leaf, 0), CN(leaf, 0), CN(neighs[leaf].back[0], 2);
-            back_distance = abs(back_ctr[2] - CN(leaf, 2));
-            back_f = f[neighs[leaf].back[0]];
-        }
+        std::tie(back_ctr, back_distance, back_f) = getNeighRep(leaf, neighs[leaf].back, NUM_NEIGHS_GRAD, CN, W, 5, f);
 
         // ==== 
 
@@ -229,152 +141,94 @@ std::unordered_map<int, int> computeFaraday(Eigen::MatrixXd &CN, Eigen::VectorXd
         Otherwise, doesn't account for "size" of neighboring cells at all
     */
 
-    int NUM_NEIGHS = 4.;
-
     for (int leaf = 0; leaf < CN.rows(); leaf++) {
 
         double weight_sum = 0.;
         int current_idx = global_to_matrix_ordering[leaf];
 
-        std::vector<int> right_closest;
         Eigen::VectorXd right_ctr(3);
         double right_distance;
-        if (neighs[leaf].right.size() == 0) {
-            right_closest = neighs[leaf].right;
-            right_ctr << CN(leaf, 0) + W[leaf], CN(leaf, 1), CN(leaf, 2);
-            right_distance = abs(right_ctr[0] - CN(leaf, 0));
-        } else if (neighs[leaf].right.size() > 1) {
-            std::tie(right_closest, right_ctr, right_distance) = getNClosestNeighs(leaf, neighs[leaf].right, NUM_NEIGHS, CN);
-        } else {
-            right_closest = neighs[leaf].right;
-            right_ctr << CN(neighs[leaf].right[0], 0), CN(leaf, 1), CN(leaf, 2);
-            right_distance = abs(right_ctr[0] - CN(leaf, 0));
-        }
+        std::tie(right_ctr, right_distance) = getNeighRep(leaf, neighs[leaf].right, NUM_NEIGHS_LAPLACE, CN, W, 0);
 
-        std::vector<int> left_closest;
         Eigen::VectorXd left_ctr(3);
         double left_distance;
-        if (neighs[leaf].left.size() == 0) {
-            left_closest = neighs[leaf].left;
-            left_ctr << CN(leaf, 0) - W[leaf], CN(leaf, 1), CN(leaf, 2);
-            left_distance = abs(right_ctr[0] - CN(leaf, 0));
-        } else if (neighs[leaf].left.size() > 1) {
-            std::tie(left_closest, left_ctr, left_distance) = getNClosestNeighs(leaf, neighs[leaf].left, NUM_NEIGHS, CN);
-        } else {
-            left_closest = neighs[leaf].left;
-            left_ctr << CN(neighs[leaf].left[0], 0), CN(leaf, 1), CN(leaf, 2);
-            left_distance = abs(left_ctr[0] - CN(leaf, 0));
-        }
+        std::tie(left_ctr, left_distance) = getNeighRep(leaf, neighs[leaf].left, NUM_NEIGHS_LAPLACE, CN, W, 1);
 
-        std::vector<int> top_closest;
         Eigen::VectorXd top_ctr(3);
         double top_distance;
-        if (neighs[leaf].top.size() == 0) {
-            top_closest = neighs[leaf].top;
-            top_ctr << CN(leaf, 0), CN(leaf, 1) + W[leaf], CN(leaf, 2);
-            top_distance = abs(top_ctr[1] - CN(leaf, 1));
-        } else if (neighs[leaf].top.size() > 1) {
-            std::tie(top_closest, top_ctr, top_distance) = getNClosestNeighs(leaf, neighs[leaf].top, NUM_NEIGHS, CN);
-        } else {
-            top_closest = neighs[leaf].top;
-            top_ctr << CN(leaf, 0), CN(neighs[leaf].top[0], 1), CN(leaf, 2);
-            top_distance = abs(top_ctr[1] - CN(leaf, 1));
-        }
-        
-        std::vector<int> bottom_closest;
+        std::tie(top_ctr, top_distance) = getNeighRep(leaf, neighs[leaf].top, NUM_NEIGHS_LAPLACE, CN, W, 2);
+
         Eigen::VectorXd bottom_ctr(3);
         double bottom_distance;
-        if (neighs[leaf].bottom.size() == 0) {
-            bottom_closest = neighs[leaf].bottom;
-            bottom_ctr << CN(leaf, 0), CN(leaf, 1) - W[leaf], CN(leaf, 2);
-            bottom_distance = abs(bottom_ctr[1] - CN(leaf, 1));
-        } else if (neighs[leaf].bottom.size() > 1) {
-            std::tie(bottom_closest, bottom_ctr, bottom_distance) = getNClosestNeighs(leaf, neighs[leaf].bottom, NUM_NEIGHS, CN);
-        } else {
-            bottom_closest = neighs[leaf].bottom;
-            bottom_ctr << CN(leaf, 0), CN(neighs[leaf].bottom[0], 1), CN(leaf, 2);
-            bottom_distance = abs(bottom_ctr[1] - CN(leaf, 1));
-        }
-        
-        std::vector<int> front_closest;
+        std::tie(bottom_ctr, bottom_distance) = getNeighRep(leaf, neighs[leaf].bottom, NUM_NEIGHS_LAPLACE, CN, W, 3);
+
         Eigen::VectorXd front_ctr(3);
         double front_distance;
-        if (neighs[leaf].front.size() == 0) {
-            front_closest = neighs[leaf].front;
-            front_ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2) + W[leaf];
-            front_distance = abs(front_ctr[2] - CN(leaf, 2));
-        } else if (neighs[leaf].front.size() > 1) {
-            std::tie(front_closest, front_ctr, front_distance) = getNClosestNeighs(leaf, neighs[leaf].front, NUM_NEIGHS, CN);
-        } else {
-            front_closest = neighs[leaf].front;
-            front_ctr << CN(leaf, 0), CN(leaf, 1), CN(neighs[leaf].front[0], 2);
-            front_distance = abs(front_ctr[2] - CN(leaf, 2));
-        }
+        std::tie(front_ctr, front_distance) = getNeighRep(leaf, neighs[leaf].front, NUM_NEIGHS_LAPLACE, CN, W, 4);
 
-        std::vector<int> back_closest;
         Eigen::VectorXd back_ctr(3);
         double back_distance;
-        if (neighs[leaf].back.size() == 0) {
-            back_closest = neighs[leaf].back;
-            back_ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2) - W[leaf];
-            back_distance = abs(back_ctr[2] - CN(leaf, 2));
-        } else if (neighs[leaf].back.size() > 1) {
-            std::tie(back_closest, back_ctr, back_distance) = getNClosestNeighs(leaf, neighs[leaf].back, NUM_NEIGHS, CN);
-        } else {
-            back_closest = neighs[leaf].back;
-            back_ctr << CN(leaf, 0), CN(leaf, 0), CN(neighs[leaf].back[0], 2);
-            back_distance = abs(back_ctr[2] - CN(leaf, 2));
-        }
+        std::tie(back_ctr, back_distance) = getNeighRep(leaf, neighs[leaf].back, NUM_NEIGHS_LAPLACE, CN, W, 5);
+
+        // std::cout << right_distance << " " << left_distance << " " << top_distance << " " << bottom_distance << " " << front_distance << " " << back_distance << " " << std::endl;
+
 
         // ==== 
 
         // add right-left connections 
-        for (int neigh: right_closest) {
-            double weight = (2. / ((left_distance + right_distance) * right_distance)) / right_closest.size();
-            int other_idx = global_to_matrix_ordering[neigh];
+        double across_1 = left_distance + right_distance;
+        double across_2 = left_distance * right_distance;
+        for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].right.size()); i++) {
+            double weight = (2. / (across_1 * right_distance)) / neighs[leaf].right.size();
+            int other_idx = global_to_matrix_ordering[neighs[leaf].right[i]];
             L_triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
-            weight_sum += (1. / (left_distance * right_distance)) / right_closest.size();;
+            weight_sum += (1. / across_2) / neighs[leaf].right.size();
         }
-        for (int neigh: left_closest) {
-            double weight = (2. / ((left_distance + right_distance) * left_distance)) / left_closest.size();
-            int other_idx = global_to_matrix_ordering[neigh];
+        for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].left.size()); i++) {
+            double weight = (2. / (across_1 * left_distance)) / neighs[leaf].left.size();
+            int other_idx = global_to_matrix_ordering[neighs[leaf].left[i]];
             L_triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
-            weight_sum += (1. / (left_distance * right_distance)) / left_closest.size();
+            weight_sum += (1. / across_2) / neighs[leaf].left.size();
         }
 
         // add top-bottom connections 
-        for (int neigh: top_closest) {
-            double weight = (2. / ((top_distance + bottom_distance) * top_distance)) / top_closest.size();
-            int other_idx = global_to_matrix_ordering[neigh];
+        across_1 = top_distance + bottom_distance;
+        across_2 = top_distance * bottom_distance;
+        for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].top.size()); i++) {
+            double weight = (2. / (across_1 * top_distance)) / neighs[leaf].top.size();
+            int other_idx = global_to_matrix_ordering[neighs[leaf].top[i]];
             L_triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
-            weight_sum += (1. / (top_distance * bottom_distance)) / top_closest.size();
+            weight_sum += (1. / across_2) / neighs[leaf].top.size();
         }
-        for (int neigh: bottom_closest) {
-            double weight = (2. / ((top_distance + bottom_distance) * bottom_distance)) / bottom_closest.size();
-            int other_idx = global_to_matrix_ordering[neigh];
+        for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].bottom.size()); i++) {
+            double weight = (2. / (across_1 * bottom_distance)) / neighs[leaf].bottom.size();
+            int other_idx = global_to_matrix_ordering[neighs[leaf].bottom[i]];
             L_triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
-            weight_sum += (1. / (top_distance * bottom_distance)) / bottom_closest.size();
+            weight_sum += (1. / across_2) / neighs[leaf].bottom.size();
         }
-       
-        // add top-bottom connections 
-        for (int neigh: front_closest) {
-            double weight = (2. / ((front_distance + back_distance) * front_distance)) / front_closest.size();
-            int other_idx = global_to_matrix_ordering[neigh];
+
+        // add front-back connections 
+        across_1 = front_distance + back_distance;
+        across_2 = front_distance * back_distance;
+        for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].front.size()); i++) {
+            double weight = (2. / (across_1 * front_distance)) / neighs[leaf].front.size();
+            int other_idx = global_to_matrix_ordering[neighs[leaf].front[i]];
             L_triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
-            weight_sum += (1. / (front_distance * back_distance)) / front_closest.size();
+            weight_sum += (1. / across_2) / neighs[leaf].front.size();
         }
-        for (int neigh: back_closest) {
-            double weight = (2. / ((front_distance + back_distance) * back_distance)) / back_closest.size();
-            int other_idx = global_to_matrix_ordering[neigh];
+        for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].back.size()); i++) {
+            double weight = (2. / (across_1 * back_distance)) / neighs[leaf].back.size();
+            int other_idx = global_to_matrix_ordering[neighs[leaf].back[i]];
             L_triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
-            weight_sum += (1. / (front_distance * back_distance)) / back_closest.size();
+            weight_sum += (1. / across_2) / neighs[leaf].back.size();
         }
-        
+
         L_triplets.push_back(Eigen::Triplet<double>(current_idx, current_idx, -weight_sum));
 
     }
 
     L.setFromTriplets(L_triplets.begin(), L_triplets.end());
+    // std::cout << L << std::endl;
     L = L * L;
 
     for (int k=0; k<L.outerSize(); ++k) {
@@ -400,6 +254,8 @@ std::unordered_map<int, int> computeFaraday(Eigen::MatrixXd &CN, Eigen::VectorXd
 
     // set the KKT matrix
     KKT.setFromTriplets(triplets.begin(), triplets.end());
+
+    std::cout << "\tSet KKT matrix. Decomposing, this may a take a while..." << std::endl;
 
     solver.compute(KKT);
     if (solver.info() != Eigen::Success) {
@@ -465,146 +321,107 @@ Eigen::VectorXd solveDirichletProblem(Eigen::MatrixXd &CN, Eigen::VectorXd &W, s
             Otherwise, doesn't account for "size" of neighboring cells at all
         */
 
-        int NUM_NEIGHS = laplacian;
-
         for (int leaf = 0; leaf < CN.rows(); leaf++) {
             if (!is_boundary(leaf)) {
                 double weight_sum = 0.;
                 double b_sum = 0.;
                 int current_idx = global_to_interior[leaf];
 
-                std::vector<int> right_closest;
                 Eigen::VectorXd right_ctr(3);
                 double right_distance;
-                if (neighs[leaf].right.size() > 1) {
-                    std::tie(right_closest, right_ctr, right_distance) = getNClosestNeighs(leaf, neighs[leaf].right, NUM_NEIGHS, CN);
-                } else {
-                    right_closest = neighs[leaf].right;
-                    right_ctr << CN(neighs[leaf].right[0], 0), CN(leaf, 1), CN(leaf, 2);
-                    right_distance = abs(right_ctr[0] - CN(leaf, 0));
-                }
+                std::tie(right_ctr, right_distance) = getNeighRep(leaf, neighs[leaf].right, NUM_NEIGHS_LAPLACE, CN, W, 0);
 
-                std::vector<int> left_closest;
                 Eigen::VectorXd left_ctr(3);
                 double left_distance;
-                
-                if (neighs[leaf].left.size() > 1) {
-                    std::tie(left_closest, left_ctr, left_distance) = getNClosestNeighs(leaf, neighs[leaf].left, NUM_NEIGHS, CN);
-                } else {
-                    left_closest = neighs[leaf].left;
-                    left_ctr << CN(neighs[leaf].left[0], 0), CN(leaf, 1), CN(leaf, 2);
-                    left_distance = abs(left_ctr[0] - CN(leaf, 0));
-                }
+                std::tie(left_ctr, left_distance) = getNeighRep(leaf, neighs[leaf].left, NUM_NEIGHS_LAPLACE, CN, W, 1);
 
-                std::vector<int> top_closest;
                 Eigen::VectorXd top_ctr(3);
                 double top_distance;
-                if (neighs[leaf].top.size() > 1) {
-                    std::tie(top_closest, top_ctr, top_distance) = getNClosestNeighs(leaf, neighs[leaf].top, NUM_NEIGHS, CN);
-                } else {
-                    top_closest = neighs[leaf].top;
-                    top_ctr << CN(leaf, 0), CN(neighs[leaf].top[0], 1), CN(leaf, 2);
-                    top_distance = abs(top_ctr[1] - CN(leaf, 1));
-                }
-                
-                std::vector<int> bottom_closest;
+                std::tie(top_ctr, top_distance) = getNeighRep(leaf, neighs[leaf].top, NUM_NEIGHS_LAPLACE, CN, W, 2);
+
                 Eigen::VectorXd bottom_ctr(3);
                 double bottom_distance;
-                if (neighs[leaf].bottom.size() > 1) {
-                    std::tie(bottom_closest, bottom_ctr, bottom_distance) = getNClosestNeighs(leaf, neighs[leaf].bottom, NUM_NEIGHS, CN);
-                } else {
-                    bottom_closest = neighs[leaf].bottom;
-                    bottom_ctr << CN(leaf, 0), CN(neighs[leaf].bottom[0], 1), CN(leaf, 2);
-                    bottom_distance = abs(bottom_ctr[1] - CN(leaf, 1));
-                }
-                
-                std::vector<int> front_closest;
+                std::tie(bottom_ctr, bottom_distance) = getNeighRep(leaf, neighs[leaf].bottom, NUM_NEIGHS_LAPLACE, CN, W, 3);
+
                 Eigen::VectorXd front_ctr(3);
                 double front_distance;
-                if (neighs[leaf].front.size() > 1) {
-                    std::tie(front_closest, front_ctr, front_distance) = getNClosestNeighs(leaf, neighs[leaf].front, NUM_NEIGHS, CN);
-                } else {
-                    front_closest = neighs[leaf].front;
-                    front_ctr << CN(leaf, 0), CN(leaf, 1), CN(neighs[leaf].front[0], 2);
-                    front_distance = abs(front_ctr[2] - CN(leaf, 2));
-                }
+                std::tie(front_ctr, front_distance) = getNeighRep(leaf, neighs[leaf].front, NUM_NEIGHS_LAPLACE, CN, W, 4);
 
-                std::vector<int> back_closest;
                 Eigen::VectorXd back_ctr(3);
                 double back_distance;
-                if (neighs[leaf].back.size() > 1) {
-                    std::tie(back_closest, back_ctr, back_distance) = getNClosestNeighs(leaf, neighs[leaf].back, NUM_NEIGHS, CN);
-                } else {
-                    back_closest = neighs[leaf].back;
-                    back_ctr << CN(leaf, 0), CN(leaf, 0), CN(neighs[leaf].back[0], 2);
-                    back_distance = abs(back_ctr[2] - CN(leaf, 2));
-                }
+                std::tie(back_ctr, back_distance) = getNeighRep(leaf, neighs[leaf].back, NUM_NEIGHS_LAPLACE, CN, W, 5);
 
-                // ===
+                // ==== 
 
                 // add right-left connections 
-                for (int neigh: right_closest) {
-                    double weight = (2. / ((left_distance + right_distance) * right_distance)) / right_closest.size();
-                    if (!is_boundary(neigh)) {
-                        int other_idx = global_to_interior[neigh];
+                double across_1 = left_distance + right_distance;
+                double across_2 = left_distance * right_distance;
+                for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].right.size()); i++) {
+                    double weight = (2. / (across_1 * right_distance)) / neighs[leaf].right.size();
+                    if (!is_boundary(neighs[leaf].right[i])) {
+                        int other_idx = global_to_interior[neighs[leaf].right[i]];
                         triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
                     } else {
-                        b_sum += weight * bdry_vals[neigh];
+                        b_sum += weight * bdry_vals[neighs[leaf].right[i]];
                     }
                 }
-                for (int neigh: left_closest) {
-                    double weight = (2. / ((left_distance + right_distance) * left_distance)) / left_closest.size();
-                    if (!is_boundary(neigh)) {
-                        int other_idx = global_to_interior[neigh];
+                for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].left.size()); i++) {
+                    double weight = (2. / (across_1 * left_distance)) / neighs[leaf].left.size();
+                    if (!is_boundary(neighs[leaf].left[i])) {
+                        int other_idx = global_to_interior[neighs[leaf].left[i]];
                         triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
                     } else {
-                        b_sum += weight * bdry_vals[neigh];
+                        b_sum += weight * bdry_vals[neighs[leaf].left[i]];
                     }
                 }
-                weight_sum += (2. / (left_distance * right_distance));
+                weight_sum += (2. / across_2);
 
                 // add top-bottom connections 
-                for (int neigh: top_closest) {
-                    double weight = (2. / ((top_distance + bottom_distance) * top_distance)) / top_closest.size();
-                    if (!is_boundary(neigh)) {
-                        int other_idx = global_to_interior[neigh];
+                across_1 = top_distance + bottom_distance;
+                across_2 = top_distance * bottom_distance;
+                for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].top.size()); i++) {
+                    double weight = (2. / (across_1 * top_distance)) / neighs[leaf].top.size();
+                    if (!is_boundary(neighs[leaf].top[i])) {
+                        int other_idx = global_to_interior[neighs[leaf].top[i]];
                         triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
                     } else {
-                        b_sum += weight * bdry_vals[neigh];
+                        b_sum += weight * bdry_vals[neighs[leaf].top[i]];
                     }
                 }
-                for (int neigh: bottom_closest) {
-                    double weight = (2. / ((top_distance + bottom_distance) * bottom_distance)) / bottom_closest.size();
-                    if (!is_boundary(neigh)) {
-                        int other_idx = global_to_interior[neigh];
+                for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].bottom.size()); i++) {
+                    double weight = (2. / (across_1 * bottom_distance)) / neighs[leaf].bottom.size();
+                    if (!is_boundary(neighs[leaf].bottom[i])) {
+                        int other_idx = global_to_interior[neighs[leaf].bottom[i]];
                         triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
                     } else {
-                        b_sum += weight * bdry_vals[neigh];
+                        b_sum += weight * bdry_vals[neighs[leaf].bottom[i]];
                     }
                 }
-                weight_sum += (2. / (top_distance * bottom_distance));
+                weight_sum += (2. / across_2);
 
-                // add top-bottom connections 
-                for (int neigh: front_closest) {
-                    double weight = (2. / ((front_distance + back_distance) * front_distance)) / front_closest.size();
-                    if (!is_boundary(neigh)) {
-                        int other_idx = global_to_interior[neigh];
+                // add front-back connections 
+                across_1 = front_distance + back_distance;
+                across_2 = front_distance * back_distance;
+                for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].front.size()); i++) {
+                    double weight = (2. / (across_1 * front_distance)) / neighs[leaf].front.size();
+                    if (!is_boundary(neighs[leaf].front[i])) {
+                        int other_idx = global_to_interior[neighs[leaf].front[i]];
                         triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
                     } else {
-                        b_sum += weight * bdry_vals[neigh];
+                        b_sum += weight * bdry_vals[neighs[leaf].front[i]];
                     }
                 }
-                for (int neigh: back_closest) {
-                    double weight = (2. / ((front_distance + back_distance) * back_distance)) / back_closest.size();
-                    if (!is_boundary(neigh)) {
-                        int other_idx = global_to_interior[neigh];
+                for (size_t i= 0; i < std::min((size_t)NUM_NEIGHS_LAPLACE, neighs[leaf].back.size()); i++) {
+                    double weight = (2. / (across_1 * back_distance)) / neighs[leaf].back.size();
+                    if (!is_boundary(neighs[leaf].back[i])) {
+                        int other_idx = global_to_interior[neighs[leaf].back[i]];
                         triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
                     } else {
-                        b_sum += weight * bdry_vals[neigh];
+                        b_sum += weight * bdry_vals[neighs[leaf].back[i]];
                     }
                 }
-                weight_sum += (2. / (front_distance * back_distance));
-                
+                weight_sum += (2. / across_2);
+
                 triplets.push_back(Eigen::Triplet<double>(current_idx, current_idx, -weight_sum));
                 b[current_idx] = -b_sum;
             }
@@ -640,8 +457,6 @@ Eigen::VectorXd solveDirichletProblem(Eigen::MatrixXd &CN, Eigen::VectorXd &W, s
             sol[leaf] = bdry_vals[leaf];
         }
     }
-
-    
 
     return sol;
 

@@ -22,6 +22,12 @@ template <typename T> std::vector<int> sort_indexes(const std::vector<T> &v) {
     return idx;
 }
 
+template <typename T> std::vector<T> reorder_vector(const std::vector<T> &vals, const std::vector<int> &idxs) {
+    std::vector<T> vals_new;
+    for (int idx: idxs) {vals_new.push_back(vals[idx]);}
+    return vals_new;
+}
+
 Eigen::MatrixXd octreeBB(Eigen::MatrixXd &CN) {
 
     Eigen::MatrixXd BV;
@@ -36,49 +42,83 @@ Eigen::MatrixXd octreeBB(Eigen::MatrixXd &CN) {
     return bb;
 }
 
-std::tuple<std::vector<int>, Eigen::VectorXd, double> getNClosestNeighs(int leaf, std::vector<int> &neighs, int n, Eigen::MatrixXd &CN) {
+std::tuple<Eigen::VectorXd, double> getNeighRep(int leaf, std::vector<int> &neighs, size_t n, Eigen::MatrixXd &CN, Eigen::VectorXd &W, int side) {
+    /*
+        Returns 
+        - average of n-closest points
+        - distance of leaf center to average along specified axis
+    */
 
-    /* neighs are neighbors on a particular side (right, top, etc.) */
+    Eigen::VectorXd ctr(3); 
+    if (neighs.size() > 0) {
+        ctr = Eigen::VectorXd::Zero(3);
+        for (int i = 0; i < std::min(n, neighs.size()); i++) {ctr += CN.row(neighs[i]);}
+        ctr /= neighs.size();
+    } else {
+        ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2);
+        ctr[side / 2] += W[leaf] * (side % 2 == 0 ? 1 : -1);
+    }
     
-    std::vector<double> dists;
+    double dist = fabs(ctr[side / 2] - CN(leaf, side / 2));
 
-    for (int neigh: neighs) {
-        dists.push_back((CN.row(leaf) - CN.row(neigh)).norm());
+    if ((dist == 0.) || (dist != dist)) {
+        std::cout << "\tLeaf: " << leaf << std::endl;
+        std::cout << "\tSide: " << side << std::endl;
+        std::cout << "\tneighs.size(): " << neighs.size() << std::endl;
+        throw std::runtime_error("getNeighRep generated bad distance " + std::to_string(dist));
     }
 
-    std::vector<int> idxs = sort_indexes(dists);
-    std::vector<int> closest_n;
-    int count = 0;
-    for (int n_idx: idxs) {
-        if (count == n) break;
-        closest_n.push_back(neighs[n_idx]);
-        count++;
-    }
-
-    Eigen::VectorXd ctr = Eigen::VectorXd::Zero(CN.cols());
-    for (int closest: closest_n) {
-        ctr += CN.row(closest).transpose();
-    }
-    ctr /= closest_n.size();
-
-    double dist = (ctr - CN.row(leaf).transpose()).norm();
-
-    return std::make_tuple(closest_n, ctr, dist);
+    return std::make_tuple(ctr, dist);
 
 }
 
-double getNeighDepthDelta(int leaf, std::vector<int> &neighs, Eigen::VectorXi &depths) {
-    int highest_neigh_depth = -1;
-    for (int neigh: neighs) {
-        if (depths[neigh] > highest_neigh_depth) {
-            highest_neigh_depth = depths[neigh];
+std::tuple<Eigen::VectorXd, double, double> getNeighRep(int leaf, std::vector<int> &neighs, size_t n, Eigen::MatrixXd &CN, Eigen::VectorXd &W, int side, Eigen::VectorXd &f) {
+    /*
+        Returns 
+        - average of n-closest points
+        - distance of leaf center to average along specified axis
+    */
+
+    Eigen::VectorXd ctr(3); 
+    double f_val = 0;
+    if (neighs.size() > 0) {
+        ctr = Eigen::VectorXd::Zero(3);
+        for (int i = 0; i < std::min(n, neighs.size()); i++) {
+            ctr += CN.row(neighs[i]);
+            f_val += f[neighs[i]];
         }
+        ctr /= neighs.size();
+        f_val /= neighs.size();
+    } else {
+        ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2);
+        ctr[side / 2] += W[leaf] * (side % 2 == 0 ? 1 : -1);
+        f_val = f[leaf];
     }
-    int depth_gap = depths[leaf] - highest_neigh_depth; // negative when neighbor is smaller
-    return depth_gap;
+    
+    double dist = fabs(ctr[side / 2] - CN(leaf, side / 2));
+
+    if ((dist == 0.) || (dist != dist)) {
+        std::cout << "\tLeaf: " << leaf << std::endl;
+        std::cout << "\tSide: " << side << std::endl;
+        std::cout << "\tneighs.size(): " << neighs.size() << std::endl;
+        throw std::runtime_error("getNeighRep generated bad distance " + std::to_string(dist));
+    }
+
+    return std::make_tuple(ctr, dist, f_val);
+
 }
 
-double getDistanceFromDelta(int leaf, int depth_gap, Eigen::VectorXd &W) {return ((W[leaf] / 2.) + ((W[leaf] * pow(2, depth_gap)) / 2.));}
+std::vector<int> sortNeighbors(int leaf, std::vector<int> &neighs, Eigen::MatrixXd &CN) {
+
+    // sort by distance
+    std::vector<double> dists;
+    for (int neigh: neighs) {
+        dists.push_back((CN.row(leaf) - CN.row(neigh)).array().pow(2).sum());
+    }
+    std::vector<int> idxs = sort_indexes(dists);
+    return reorder_vector(neighs, idxs);
+
+}
 
 void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::VectorXi &search, Eigen::MatrixXd &CN, Eigen::VectorXd &W, Eigen::VectorXi &is_cage_point, 
                         Eigen::MatrixXd &bb_oct, Eigen::VectorXi &is_boundary_cell, Eigen::VectorXi &is_cage_cell, std::vector<struct CellNeighbors> &neighs) {
@@ -103,13 +143,6 @@ void searchForNeighbors(int leaf, std::vector<std::vector<int>> &PI, Eigen::Vect
         bool inXLimits = (fabs(CN(leaf, 0) - CN(other, 0)) < ((W[leaf] / 2.) + (W[other] / 2.)));
         bool inYLimits = (fabs(CN(leaf, 1) - CN(other, 1)) < ((W[leaf] / 2.) + (W[other] / 2.)));
         bool inZLimits = (fabs(CN(leaf, 2) - CN(other, 2)) < ((W[leaf] / 2.) + (W[other] / 2.)));
-
-        // bool onRightPlane = ((CN(other, 0) - CN(leaf, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        // bool onLeftPlane = ((CN(leaf, 0) - CN(other, 0)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        // bool onTopPlane = ((CN(other, 1) - CN(leaf, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        // bool onBottomPlane = ((CN(leaf, 1) - CN(other, 1)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        // bool onFrontPlane = ((CN(other, 2) - CN(leaf, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
-        // bool onBackPlane = ((CN(leaf, 2) - CN(other, 2)) == ((W[leaf] / 2.) + (W[other] / 2.)));
         bool onRightPlane = is_close((CN(other, 0) - CN(leaf, 0)), ((W[leaf] / 2.) + (W[other] / 2.)));
         bool onLeftPlane = is_close((CN(leaf, 0) - CN(other, 0)), ((W[leaf] / 2.) + (W[other] / 2.)));
         bool onTopPlane = is_close((CN(other, 1) - CN(leaf, 1)), ((W[leaf] / 2.) + (W[other] / 2.)));
@@ -212,6 +245,14 @@ std::tuple<std::vector<struct CellNeighbors>, Eigen::VectorXi, Eigen::VectorXi> 
 
                 throw std::runtime_error("Unfortunately, " + std::to_string(leaf) + " is not connected on all sides. This is a sad day");
             }
+        
+        // sort each neighbor list by ascending distance
+        neighs[leaf].right = sortNeighbors(leaf, neighs[leaf].right, CN);
+        neighs[leaf].left = sortNeighbors(leaf, neighs[leaf].left, CN);
+        neighs[leaf].top = sortNeighbors(leaf, neighs[leaf].top, CN);
+        neighs[leaf].bottom = sortNeighbors(leaf, neighs[leaf].bottom, CN);
+        neighs[leaf].front = sortNeighbors(leaf, neighs[leaf].front, CN);
+        neighs[leaf].back = sortNeighbors(leaf, neighs[leaf].back, CN);
 
         for (int n: neighs[leaf].right) {
             neighs[leaf].all.push_back(n);
