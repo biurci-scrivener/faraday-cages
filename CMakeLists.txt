@@ -67,9 +67,8 @@ add_subdirectory(deps/polyscope)
 
 set(SRCS 
   src/main.cpp
-  src/oct_helper.cpp
+  src/pc.cpp
   src/polyscope_misc.cpp
-  src/solve.cpp
 	# add any other source files here
 )
 
