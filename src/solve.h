@@ -17,6 +17,10 @@
 #include <unordered_map>
 
 Eigen::MatrixXd grad(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<struct CellNeighbors> &neighs, Eigen::VectorXi &is_boundary, Eigen::VectorXi &depths, Eigen::VectorXd &bdry_vals, Eigen::VectorXd &f);
+Eigen::MatrixXd grad2(  Eigen::VectorXd &W_all, Eigen::MatrixXi &CH,  std::vector<struct CellNeighbors> &neighs, 
+                        Eigen::VectorXi &parents, std::unordered_map<int, int> &all_to_leaf, std::unordered_map<int, int> &leaf_to_all, 
+                        Eigen::VectorXd &f);
+
 
 std::unordered_map<int, int> computeFaraday(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<struct CellNeighbors> &neighs, Eigen::VectorXi &is_boundary, Eigen::VectorXi &is_cage, Eigen::VectorXi &depths, Eigen::SparseLU<Eigen::SparseMatrix<double>> &solver);
 Eigen::VectorXd solveFaraday(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<struct CellNeighbors> &neighs, Eigen::VectorXi &is_boundary, Eigen::VectorXi &is_cage, Eigen::VectorXi &depths, Eigen::VectorXd &bdry_vals, Eigen::SparseLU<Eigen::SparseMatrix<double>> &solver, std::unordered_map<int, int> &global_to_matrix_ordering);

@@ -44,17 +44,43 @@ Eigen::MatrixXd octreeBB(Eigen::MatrixXd &CN) {
 
 std::tuple<Eigen::VectorXd, double> getNeighRep(int leaf, std::vector<int> &neighs, size_t n, Eigen::MatrixXd &CN, Eigen::VectorXd &W, int side) {
     /*
+        Used by functions that build the Laplacian
+
         Returns 
         - average of n-closest points
         - distance of leaf center to average along specified axis
     */
 
     Eigen::VectorXd ctr(3); 
-    if (neighs.size() > 0) {
+    if (neighs.size() == 1) {
+        // neighbor is same size or larger
+        if (W[neighs[0]] > W[leaf]) {
+            // larger
+
+            // shift value
+            ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2);
+            ctr[side / 2] += W[leaf] * (side % 2 == 0 ? 1 : -1);
+
+            // leave as-is
+            // ctr = CN.row(neighs[0]);
+        } else if (W[neighs[0]] == W[leaf]) {
+            // same size
+            ctr = CN.row(neighs[0]);
+        } else {
+            std::cout << "\tLeaf: " << leaf << std::endl;
+            std::cout << "\tLeaf width: " << W[leaf] << std::endl;
+            std::cout << "\tNeigh: " << neighs[0] << std::endl;
+            std::cout << "\tNeigh width: " << W[neighs[0]] << std::endl;
+            std::cout << "\tSide: " << side << std::endl;
+            throw std::runtime_error("Leaf has only one neighbor, but it appears to be smaller");
+        }
+    } else if (neighs.size() > 0) {
+        // neighbors are smaller. average n of them
         ctr = Eigen::VectorXd::Zero(3);
-        for (int i = 0; i < std::min(n, neighs.size()); i++) {ctr += CN.row(neighs[i]);}
-        ctr /= neighs.size();
+        for (size_t i = 0; i < std::min(n, neighs.size()); i++) {ctr += CN.row(neighs[i]);}
+        ctr /= std::min(n, neighs.size());
     } else {
+        // no neighbor. pad with phantom cell
         ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2);
         ctr[side / 2] += W[leaf] * (side % 2 == 0 ? 1 : -1);
     }
@@ -72,8 +98,62 @@ std::tuple<Eigen::VectorXd, double> getNeighRep(int leaf, std::vector<int> &neig
 
 }
 
+double averageOverCell(int cell, Eigen::MatrixXi &CH, Eigen::VectorXd &f, std::unordered_map<int, int> &all_to_leaf) {
+    
+    if (CH(cell, 0) == -1) {
+        // this is a leaf
+        return f[all_to_leaf[cell]];
+    } else {
+        double sum = 0.;
+        for (int child: CH.row(cell)) {
+            sum += averageOverCell(child, CH, f, all_to_leaf);
+        }
+        return sum / 8;
+    }
+
+}
+
+double getFunctionValueAtNeighbor(  int leaf, std::vector<int> &neighs, Eigen::VectorXd &W_all, Eigen::MatrixXi &CH, 
+                                                Eigen::VectorXi &parents, std::unordered_map<int, int> &all_to_leaf, std::unordered_map<int, int> &leaf_to_all,
+                                                Eigen::VectorXd &f
+                                                ) {
+
+    if (neighs.size() == 1) {
+        // neighbor is same size or larger
+        // std::cout << "(a) " << f[neighs[0]] << std::endl;
+        return f[neighs[0]];
+    } else if (neighs.size() > 0) {
+        // neighbors are smaller.
+        // find the (non-leaf, same-sized) neighbor
+        // that contains all the leaf neighbors.
+        // then, recursively compute average throughout cell
+        int neigh = leaf_to_all[neighs[0]];
+        if (W_all[neigh] >= W_all[leaf_to_all[leaf]]) {
+            std::cout << "Leaf: " << leaf << std::endl;
+            std::cout << "Neighbors: ";
+            for (int n: neighs) std::cout << n << " ";
+            std::cout << std::endl;
+            std::cout << "Leaf width: " << W_all[leaf_to_all[leaf]] << std::endl;
+            std::cout << "Neigh: " << all_to_leaf[neigh] << std::endl;
+            std::cout << "Neigh width: " << W_all[neigh] << std::endl;
+            throw std::runtime_error("Error in getFunctionValueAtNeighbor: more than one neighbor, but appears larger?");
+        }
+        while (W_all[neigh] != W_all[leaf_to_all[leaf]]) {
+            neigh = parents[neigh];
+        }
+        return averageOverCell(neigh, CH, f, all_to_leaf);
+    } else {
+        // no neighbor. phantom cell
+        // std::cout << "(c) " << f[leaf] << std::endl;
+        return f[leaf];
+    }
+
+}
+
 std::tuple<Eigen::VectorXd, double, double> getNeighRep(int leaf, std::vector<int> &neighs, size_t n, Eigen::MatrixXd &CN, Eigen::VectorXd &W, int side, Eigen::VectorXd &f) {
     /*
+        Used by grad
+
         Returns 
         - average of n-closest points
         - distance of leaf center to average along specified axis
@@ -81,15 +161,43 @@ std::tuple<Eigen::VectorXd, double, double> getNeighRep(int leaf, std::vector<in
 
     Eigen::VectorXd ctr(3); 
     double f_val = 0;
-    if (neighs.size() > 0) {
+    if (neighs.size() == 1) {
+        // neighbor is same size or larger
+        if (W[neighs[0]] > W[leaf]) {
+            // larger
+
+            // shift value
+            ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2);
+            ctr[side / 2] += W[leaf] * (side % 2 == 0 ? 1 : -1);
+            f_val = f[neighs[0]];
+
+            // leave as-is
+            // ctr = CN.row(neighs[0]);
+            // f_val = f[neighs[0]];
+        } else if (W[neighs[0]] == W[leaf]) {
+            // same size
+            ctr = CN.row(neighs[0]);
+            f_val = f[neighs[0]];
+        } else {
+            std::cout << "\tLeaf: " << leaf << std::endl;
+            std::cout << "\tLeaf width: " << W[leaf] << std::endl;
+            std::cout << "\tNeigh: " << neighs[0] << std::endl;
+            std::cout << "\tNeigh width: " << W[neighs[0]] << std::endl;
+            std::cout << "\tSide: " << side << std::endl;
+            throw std::runtime_error("Leaf has only one neighbor, but it appears to be smaller");
+        }
+
+    } else if (neighs.size() > 0) {
+        // neighbors are smaller. average n of them
         ctr = Eigen::VectorXd::Zero(3);
-        for (int i = 0; i < std::min(n, neighs.size()); i++) {
+        for (size_t i = 0; i < std::min(n, neighs.size()); i++) {
             ctr += CN.row(neighs[i]);
             f_val += f[neighs[i]];
         }
-        ctr /= neighs.size();
-        f_val /= neighs.size();
+        ctr /= std::min(n, neighs.size());
+        f_val /= std::min(n, neighs.size());
     } else {
+        // no neighbor. pad with phantom cell
         ctr << CN(leaf, 0), CN(leaf, 1), CN(leaf, 2);
         ctr[side / 2] += W[leaf] * (side % 2 == 0 ? 1 : -1);
         f_val = f[leaf];
@@ -406,87 +514,87 @@ std::tuple<Eigen::VectorXi, Eigen::VectorXi, std::vector<std::vector<int>>, Eige
         add_rows.push_back({ bb_max[0] + pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] });
 
         // refine each square face
-        double REFINE_DEG = 6.;
+        size_t REFINE_DEG = 4;
 
         // bottom 3
         Eigen::Vector3d base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
-            for (int j = 1; j < REFINE_DEG; j++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
+            for (size_t j = 1; j < REFINE_DEG; j++) {
                 add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
             }
         }
-        for (int i = 1; i < REFINE_DEG; i++) {
-            for (int j = 1; j < REFINE_DEG; j++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
+            for (size_t j = 1; j < REFINE_DEG; j++) {
                 add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
             }
         }
-        for (int i = 1; i < REFINE_DEG; i++) {
-            for (int j = 1; j < REFINE_DEG; j++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
+            for (size_t j = 1; j < REFINE_DEG; j++) {
                 add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
             }
         }
         // top 3
         base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
-            for (int j = 1; j < REFINE_DEG; j++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
+            for (size_t j = 1; j < REFINE_DEG; j++) {
                 add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1] + (j * (delta[1] / REFINE_DEG)), base[2]});
             }
         }
         base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
-            for (int j = 1; j < REFINE_DEG; j++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
+            for (size_t j = 1; j < REFINE_DEG; j++) {
                 add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2] + (j * (delta[2] / REFINE_DEG))});
             }
         }
         base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
-            for (int j = 1; j < REFINE_DEG; j++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
+            for (size_t j = 1; j < REFINE_DEG; j++) {
                 add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2] + (j * (delta[2] / REFINE_DEG))});
             }
         }
         
         // refine 12 edges
         base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
         }
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
         }
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
         }
         base = { bb_min[0] - pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
         }
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
         }
         base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
         }
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
         }
         base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_min[2] - pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
         }
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
         }
         base = { bb_min[0] - pad[0], bb_max[1] + pad[1], bb_max[2] + pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0] + (i * (delta[0] / REFINE_DEG)), base[1], base[2]});
         }
         base = { bb_max[0] + pad[0], bb_min[1] - pad[1], bb_max[2] + pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1] + (i * (delta[1] / REFINE_DEG)), base[2]});
         }
         base = { bb_max[0] + pad[0], bb_max[1] + pad[1], bb_min[2] - pad[2] };
-        for (int i = 1; i < REFINE_DEG; i++) {
+        for (size_t i = 1; i < REFINE_DEG; i++) {
             add_rows.push_back({base[0], base[1], base[2] + (i * (delta[2] / REFINE_DEG))});
         }
     

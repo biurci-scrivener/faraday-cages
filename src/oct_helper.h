@@ -16,6 +16,43 @@
 #include <unordered_map>
 #include <stdexcept>
 
+struct FaradayOctree {
+
+    // unused: need to implement this to unify things in the future
+
+    Eigen::MatrixXd P;
+	Eigen::MatrixXd N;
+
+    Eigen::VectorXi is_boundary_point;
+	Eigen::VectorXi is_cage_point;
+	std::vector<std::vector<int>> my_cage_points;
+	Eigen::MatrixXd bb;
+
+    // defined on original octree cells
+
+    std::vector<std::vector<int >> PI; // associates points to octree cells
+	Eigen::MatrixXi CH; // cells * 8, lists children
+	Eigen::MatrixXd CN; // cell centers
+	Eigen::VectorXd W; //  cell widths
+
+    // defined only on leaf cells
+
+    std::vector<std::vector<int >> PI_l;
+	// no Eigen::MatrixXi CH_l: doesn't make sense
+	Eigen::MatrixXd CN_l;
+	Eigen::VectorXd W_l;
+	std::unordered_map<int, int> leaf_to_all;
+	std::unordered_map<int, int> all_to_leaf;
+	Eigen::VectorXi depths;
+	Eigen::VectorXi depths_l;
+	Eigen::VectorXi parents;
+	Eigen::VectorXi parents_l;
+    std::vector<struct CellNeighbors> neighs;
+	Eigen::VectorXi is_boundary_cell;
+	Eigen::VectorXi is_cage_cell;
+
+};
+
 struct CellNeighbors {
     std::vector<int> right;
     std::vector<int> left;
@@ -25,6 +62,11 @@ struct CellNeighbors {
     std::vector<int> back;
     std::vector<int> all;
 };
+
+double getFunctionValueAtNeighbor(  int leaf, std::vector<int> &neighs, Eigen::VectorXd &W_all, Eigen::MatrixXi &CH, 
+                                                Eigen::VectorXi &parents, std::unordered_map<int, int> &all_to_leaf, std::unordered_map<int, int> &leaf_to_all,
+                                                Eigen::VectorXd &f
+                                                );
 
 std::tuple<Eigen::VectorXd, double> getNeighRep(int leaf, std::vector<int> &neighs, size_t n, Eigen::MatrixXd &CN, Eigen::VectorXd &W, int side);
 std::tuple<Eigen::VectorXd, double, double> getNeighRep(int leaf, std::vector<int> &neighs, size_t n, Eigen::MatrixXd &CN, Eigen::VectorXd &W, int side, Eigen::VectorXd &f);

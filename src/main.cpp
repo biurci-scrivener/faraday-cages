@@ -207,14 +207,18 @@ int main(int argc, char **argv) {
 	// 	bdry_vals[leaf] = dir.dot(CN_l.row(leaf));
 	// }
 
-	// std::cout << "Solving Dirichlet problem" << std::endl;
-	// // Eigen::VectorXd u_uni = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 0);
-	// // std::cout << "\tUniform done" << std::endl;
-	// // Eigen::VectorXd u_weight = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 2);
-	// // std::cout << "\tNeighs = 2 done" << std::endl;
-	// Eigen::VectorXd u_weight_4 = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 4);
-	// std::cout << "\tNeighs = 4 done" << std::endl;
-	// std::cout << "\tAll done" << std::endl;
+	Eigen::VectorXd bdry_vals = Eigen::VectorXd::Zero(CN_l.rows());
+	Eigen::VectorXd dir_1 = ico_pts_2.row(0);
+	for (size_t leaf = 0; leaf < CN_l.rows(); leaf++) bdry_vals[leaf] = dir_1.dot(CN_l.row(leaf));
+
+	std::cout << "Solving Dirichlet problem" << std::endl;
+	Eigen::VectorXd u_uni = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 0);
+	std::cout << "\tUniform done" << std::endl;
+	// Eigen::VectorXd u_weight = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 2);
+	// std::cout << "\tNeighs = 2 done" << std::endl;
+	Eigen::VectorXd u_weight_4 = solveDirichletProblem(CN_l, W_l, neighs, is_boundary_cell, depths_l, bdry_vals, 4);
+	std::cout << "\tNeighs = 4 done" << std::endl;
+	std::cout << "\tAll done" << std::endl;
 
 	// Faraday
 	std::cout << "Decomposing KKT Matrix" << std::endl;
@@ -230,32 +234,43 @@ int main(int argc, char **argv) {
 		for (size_t leaf = 0; leaf < CN_l.rows(); leaf++) bdry_vals_dir[leaf] = dir.dot(CN_l.row(leaf));
 		Eigen::VectorXd sol = solveFaraday(CN_l, W_l, neighs, is_boundary_cell, is_cage_cell, depths_l, bdry_vals_dir, faraday_solver, global_to_matrix_ordering);
 		Eigen::VectorXd this_field_diff = (sol - bdry_vals_dir).cwiseAbs();
+		Eigen::VectorXd this_field_diff_gradmag = grad2(W, CH, neighs, parents, all_to_leaf, leaf_to_all, this_field_diff).rowwise().norm();
 		u_all_dirs.col(i) << sol;
-		u_diff_all_dirs.col(i) << this_field_diff;
+		u_diff_all_dirs.col(i) << this_field_diff_gradmag;
 	}
 
-	Eigen::VectorXd u_max_diff = u_diff_all_dirs.rowwise().maxCoeff();
-	Eigen::VectorXd bdry_vals = Eigen::VectorXd::Zero(CN_l.rows());
-	Eigen::VectorXd dir_1 = ico_pts_2.row(0);
+	Eigen::VectorXd u_max_gradmag = u_diff_all_dirs.rowwise().maxCoeff();
 	std::cout << "\tTest dir is " << dir_1.transpose() << std::endl;
-	for (size_t leaf = 0; leaf < CN_l.rows(); leaf++) bdry_vals[leaf] = dir_1.dot(CN_l.row(leaf));
 	Eigen::VectorXd u_faraday = u_all_dirs.col(0);
 	Eigen::VectorXd field_diff = (u_faraday - bdry_vals).cwiseAbs();
 
-	Eigen::MatrixXd grad_faraday = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, u_faraday);
-	Eigen::MatrixXd grad_faraday_diff = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, field_diff);
-	Eigen::MatrixXd grad_base = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, bdry_vals);
-	Eigen::MatrixXd grad_max_diff = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, u_max_diff);
+	// Eigen::MatrixXd grad_faraday = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, u_faraday);
+	// Eigen::MatrixXd grad_faraday_diff = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, field_diff);
+	// Eigen::MatrixXd grad_base = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, bdry_vals);
+	// Eigen::MatrixXd grad_max_diff = grad(CN_l, W_l, neighs, is_boundary_cell, depths, bdry_vals, u_max_diff);
+	/*
+		Eigen::MatrixXd grad2(  Eigen::VectorXd &W_all, Eigen::MatrixXi &CH,  std::vector<struct CellNeighbors> &neighs, 
+                        Eigen::VectorXi &parents, std::unordered_map<int, int> &all_to_leaf, std::unordered_map<int, int> &leaf_to_all, 
+                        Eigen::VectorXd &f);
+	*/ 
+
+	// Eigen::MatrixXd grad_faraday = grad2(W, CH, neighs, parents, all_to_leaf, leaf_to_all, u_faraday);
+	// Eigen::MatrixXd grad_faraday_diff = grad2(W, CH, neighs, parents, all_to_leaf, leaf_to_all, field_diff);
+	Eigen::MatrixXd grad_faraday_diff = grad2(W, CH, neighs, parents, all_to_leaf, leaf_to_all, field_diff);
+	Eigen::MatrixXd grad_base = grad2(W, CH, neighs, parents, all_to_leaf, leaf_to_all, bdry_vals);
+	Eigen::MatrixXd grad_max_diff = grad2(W, CH, neighs, parents, all_to_leaf, leaf_to_all, u_max_gradmag);
 
 	// compute normals
 	// put cell gradients on corresponding cage points
 	Eigen::MatrixXd normals_est = Eigen::MatrixXd::Zero(P.rows(), 3);
 	for (size_t leaf = 0; leaf < CN_l.rows(); leaf++) {
+		// assign gradient to each cage point
 		if (is_cage_cell(leaf)) {
 			normals_est.row(PI_l[leaf][0]) = grad_max_diff.row(leaf);
 		}
 	}
 	for (size_t pt_idx = 0; pt_idx < P.rows(); pt_idx++) {
+		// average over cage points associated with a particular point
 		if (!(is_boundary_point(pt_idx)) && !(is_cage_point(pt_idx))) {
 			for (int cage: my_cage_points[pt_idx]) {
 				normals_est.row(pt_idx) += normals_est.row(cage) / 12;
@@ -296,45 +311,45 @@ int main(int argc, char **argv) {
 	pc_cn->addScalarQuantity("Boundary cells", is_boundary_cell);
 	pc_cn->addScalarQuantity("Cage cells", is_cage_cell);
 
-	// pc_cn->addScalarQuantity("Laplacian solve (uniform)", u_uni);
-	// Eigen::VectorXd laplacian_error_uniform = (u_uni - bdry_vals).cwiseAbs();
-	// auto vs_le_u = pc_cn->addScalarQuantity("Laplacian error (uniform)", laplacian_error_uniform);
+	pc_cn->addScalarQuantity("Laplacian solve (uniform)", u_uni);
+	Eigen::VectorXd laplacian_error_uniform = (u_uni - bdry_vals).cwiseAbs();
+	auto vs_le_u = pc_cn->addScalarQuantity("Laplacian error (uniform)", laplacian_error_uniform);
 
 	// pc_cn->addScalarQuantity("Laplacian solve (weighted)", u_weight);
 	// Eigen::VectorXd laplacian_error_weighted = (u_weight - bdry_vals).cwiseAbs();
 	// auto vs_le_w = pc_cn->addScalarQuantity("Laplacian error (weighted, 2 neighbors)", laplacian_error_weighted);
 
-	// pc_cn->addScalarQuantity("Laplacian solve (weighted, 4 neighbors)", u_weight_4);
-	// Eigen::VectorXd laplacian_error_weighted_4 = (u_weight_4 - bdry_vals).cwiseAbs();
-	// auto vs_le_w_4 = pc_cn->addScalarQuantity("Laplacian error (weighted, 4 neighbors)", laplacian_error_weighted_4);
+	pc_cn->addScalarQuantity("Laplacian solve (weighted, 4 neighbors)", u_weight_4);
+	Eigen::VectorXd laplacian_error_weighted_4 = (u_weight_4 - bdry_vals).cwiseAbs();
+	auto vs_le_w_4 = pc_cn->addScalarQuantity("Laplacian error (weighted, 4 neighbors)", laplacian_error_weighted_4);
 
 	pc_cn->addScalarQuantity("Base field", bdry_vals);
 	auto vs_faraday = pc_cn->addScalarQuantity("Faraday solve", u_faraday);
 	
-	auto vs_faraday_diff = pc_cn->addScalarQuantity("Faraday, field difference", field_diff);
-	auto vs_faraday_grad = pc_cn->addVectorQuantity("Faraday, grad", grad_faraday);
-	auto vs_faraday_diff_grad = pc_cn->addVectorQuantity("Faraday, field difference (grad)", grad_faraday_diff);
+	// auto vs_faraday_diff = pc_cn->addScalarQuantity("Faraday, field difference", field_diff);
+	// auto vs_faraday_grad = pc_cn->addVectorQuantity("Faraday, grad", grad_faraday);
+	// auto vs_faraday_diff_grad = pc_cn->addVectorQuantity("Faraday, field difference (grad)", grad_faraday_diff);
 	auto vs_base_grad = pc_cn->addVectorQuantity("Base, grad", grad_base);
 	Eigen::MatrixXd dir_grad(CN_l.rows(), 3);
 	dir_grad.rowwise() = dir_1.transpose();
 	auto vs_base_true_grad = pc_cn->addVectorQuantity("Base, true grad", dir_grad);
-	vs_faraday_diff->setColorMap("reds");
+	// vs_faraday_diff->setColorMap("reds");
 
-	auto vs_max_diff = pc_cn->addScalarQuantity("Max. diff", u_max_diff);
+	auto vs_max_diff = pc_cn->addScalarQuantity("Magnitude of largest gradient", u_max_gradmag);
 	vs_max_diff->setColorMap("reds");
-	auto vs_max_diff_grad = pc_cn->addVectorQuantity("Max. diff, grad", grad_max_diff);
+	auto vs_max_diff_grad = pc_cn->addVectorQuantity("Mag. largest grad., gradient", grad_max_diff);
 
-	// vs_le_u->setColorMap("blues");
-	// vs_le_u->setMapRange(std::pair<double,double>(0, fmax(fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted.maxCoeff()), laplacian_error_weighted_4.maxCoeff())));
+	vs_le_u->setColorMap("blues");
+	vs_le_u->setMapRange(std::pair<double,double>(0, fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted_4.maxCoeff())));
 	// vs_le_w->setColorMap("blues");
 	// vs_le_w->setMapRange(std::pair<double,double>(0, fmax(fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted.maxCoeff()), laplacian_error_weighted_4.maxCoeff())));
-	// vs_le_w_4->setColorMap("blues");
-	// vs_le_w_4->setMapRange(std::pair<double,double>(0, laplacian_error_weighted_4.maxCoeff()));
+	vs_le_w_4->setColorMap("blues");
+	vs_le_w_4->setMapRange(std::pair<double,double>(0, fmax(laplacian_error_uniform.maxCoeff(), laplacian_error_weighted_4.maxCoeff())));
 
 	// generate_world_axes({3.,0.,0.});
 
 	// test neighborhood connectivity
-	int test_idx = 100;
+	int test_idx = 11415;
 	Eigen::VectorXi is_test_neigh = Eigen::VectorXi::Zero(CN_l.rows());
 
 	for (int neigh: neighs[test_idx].all) {
@@ -342,6 +357,15 @@ int main(int argc, char **argv) {
 	}
 
 	pc_cn->addScalarQuantity("Connectivity (debug, vertex " + std::to_string(test_idx) + ")", is_test_neigh);
+
+	int test_idx_2 = 9335;
+	Eigen::VectorXi is_test_neigh_2 = Eigen::VectorXi::Zero(CN_l.rows());
+
+	for (int neigh: neighs[test_idx_2].all) {
+		is_test_neigh_2[neigh] = 1.;
+	}
+
+	pc_cn->addScalarQuantity("Connectivity (debug, vertex " + std::to_string(test_idx_2) + ")", is_test_neigh_2);
 
 	// Give control to the polyscope gui
 	polyscope::show();

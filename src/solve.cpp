@@ -1,7 +1,41 @@
 #include "solve.h"
 
-size_t NUM_NEIGHS_GRAD = 64;
+size_t NUM_NEIGHS_GRAD = 16;
 size_t NUM_NEIGHS_LAPLACE = 4;
+
+
+Eigen::MatrixXd grad2(   Eigen::VectorXd &W_all, Eigen::MatrixXi &CH,  std::vector<struct CellNeighbors> &neighs, 
+                        Eigen::VectorXi &parents, std::unordered_map<int, int> &all_to_leaf, std::unordered_map<int, int> &leaf_to_all, 
+                        Eigen::VectorXd &f) {
+
+    Eigen::MatrixXd grad_all(neighs.size(), 3);
+    
+    for (size_t leaf = 0; leaf < neighs.size(); leaf++) {
+
+        Eigen::VectorXd grad_l = Eigen::VectorXd::Zero(3);
+
+        double right_f = getFunctionValueAtNeighbor(leaf, neighs[leaf].right, W_all, CH, parents, all_to_leaf, leaf_to_all, f);
+        double left_f = getFunctionValueAtNeighbor(leaf, neighs[leaf].left, W_all, CH, parents, all_to_leaf, leaf_to_all, f);
+        double top_f = getFunctionValueAtNeighbor(leaf, neighs[leaf].top, W_all, CH, parents, all_to_leaf, leaf_to_all, f);
+        double bottom_f = getFunctionValueAtNeighbor(leaf, neighs[leaf].bottom, W_all, CH, parents, all_to_leaf, leaf_to_all, f);
+        double front_f = getFunctionValueAtNeighbor(leaf, neighs[leaf].front, W_all, CH, parents, all_to_leaf, leaf_to_all, f);
+        double back_f = getFunctionValueAtNeighbor(leaf, neighs[leaf].back, W_all, CH, parents, all_to_leaf, leaf_to_all, f);
+
+        // dx, dy, dz
+        grad_l[0] = (right_f - left_f) / (2 * W_all[leaf_to_all[leaf]]);
+        grad_l[1] = (top_f - bottom_f) / (2 * W_all[leaf_to_all[leaf]]);
+        grad_l[2] = (front_f - back_f) / (2 * W_all[leaf_to_all[leaf]]);
+
+        grad_all.row(leaf) = grad_l;
+
+        // std::cout << (right_f - left_f) / (right_distance + left_distance) << " " << (top_f - bottom_f) / (top_distance + bottom_distance) << " " << (front_f - back_f) / (front_distance + back_distance) << std::endl;
+        // std::cout << grad_all.row(leaf) << std::endl;
+
+    }
+
+    return grad_all;
+
+}
 
 Eigen::MatrixXd grad(Eigen::MatrixXd &CN, Eigen::VectorXd &W, std::vector<struct CellNeighbors> &neighs, Eigen::VectorXi &is_boundary, Eigen::VectorXi &depths, Eigen::VectorXd &bdry_vals, Eigen::VectorXd &f) {
 
@@ -221,6 +255,40 @@ std::unordered_map<int, int> computeFaraday(Eigen::MatrixXd &CN, Eigen::VectorXd
             int other_idx = global_to_matrix_ordering[neighs[leaf].back[i]];
             L_triplets.push_back(Eigen::Triplet<double>(current_idx, other_idx, weight));
             weight_sum += (1. / across_2) / neighs[leaf].back.size();
+        }
+
+        if ((leaf == 11415) || (leaf == 9335)) {
+            std::cout << std::endl << "Leaf: " << leaf << std::endl;
+            std::cout << "Right distance: " << right_distance << std::endl;
+            std::cout << "Right center: " << right_ctr.transpose() << std::endl;
+            std::cout << "Right neighbors: ";
+            for (int n: neighs[leaf].right) std::cout << n << " ";
+            std::cout << std::endl;
+            std::cout << "Left distance: " << left_distance << std::endl;
+             std::cout << "Left center: " << left_ctr.transpose() << std::endl;
+            std::cout << "Left neighbors: ";
+            for (int n: neighs[leaf].left) std::cout << n << " ";
+            std::cout << std::endl;
+            std::cout << "Top distance: " << top_distance << std::endl;
+             std::cout << "Top center: " << top_ctr.transpose() << std::endl;
+            std::cout << "Top neighbors: ";
+            for (int n: neighs[leaf].top) std::cout << n << " ";
+            std::cout << std::endl;
+            std::cout << "Bottom distance: " << bottom_distance << std::endl;
+             std::cout << "Bottom center: " << bottom_ctr.transpose() << std::endl;
+            std::cout << "Bottom neighbors: ";
+            for (int n: neighs[leaf].bottom) std::cout << n << " ";
+            std::cout << std::endl;
+            std::cout << "Front distance: " << front_distance << std::endl;
+             std::cout << "Front center: " << front_ctr.transpose() << std::endl;
+            std::cout << "Front neighbors: ";
+            for (int n: neighs[leaf].front) std::cout << n << " ";
+            std::cout << std::endl;
+            std::cout << "Back distance: " << back_distance << std::endl;
+             std::cout << "Back center: " << back_ctr.transpose() << std::endl;
+            std::cout << "Back neighbors: ";
+            for (int n: neighs[leaf].back) std::cout << n << " ";
+            std::cout << std::endl << std::endl;
         }
 
         L_triplets.push_back(Eigen::Triplet<double>(current_idx, current_idx, -weight_sum));
